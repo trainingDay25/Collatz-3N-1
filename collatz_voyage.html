@@ -1,0 +1,1251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Collatz Voyage — 3N+1</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #05060e;
+               font-family: Consolas, "Cascadia Mono", monospace; }
+  canvas { display: block; }
+
+  #labels { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+  .lbl { position: absolute; color: #cdd7fa; font-size: 13px; white-space: nowrap;
+         text-shadow: 0 0 6px rgba(80,100,220,.8); transform: translate(10px,-24px);
+         display: none; }
+  .lbl.merge { color: #ffcd96; text-shadow: 0 0 8px rgba(255,150,60,.8); }
+  .lbl.loopnum { color: #ffefc8; font-size: 30px; font-weight: bold;
+                 transform: translate(-50%,-58px);
+                 text-shadow: 0 0 18px rgba(255,190,90,.9); }
+
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 6;
+         color: #969fc8; font-size: 14px; }
+  #readout { position: absolute; top: 16px; left: 18px; line-height: 1.7; }
+  #readout .v { color: #ebebff; font-size: 16px; }
+  #loopbanner { position: absolute; bottom: 64px; width: 100%; text-align: center;
+                display: none; }
+  #loopbanner .big { color: #ffe1a0; font-size: 30px; font-weight: bold;
+                     text-shadow: 0 0 22px rgba(255,190,90,.55); }
+  #loopbanner .sub { color: #aaa596; margin-top: 8px; }
+  #hint { position: absolute; bottom: 34px; width: 100%; text-align: center;
+          color: #5f6482; font-size: 12.5px; }
+  #bar { position: absolute; bottom: 16px; left: 18px; right: 18px; height: 4px;
+         background: #282c46; border-radius: 2px; }
+  #barfill { height: 100%; width: 0; background: #8ca0ff; border-radius: 2px;
+             box-shadow: 0 0 10px #8ca0ff; }
+
+  #menu { position: fixed; inset: 0; z-index: 10; display: flex;
+          align-items: center; justify-content: center;
+          background: rgba(4,5,12,.55); backdrop-filter: blur(5px); }
+  #menu.hidden, #hud.hidden, #loopbanner.hidden { display: none; }
+  #menu-inner { text-align: center; max-width: 720px; width: 92%; }
+  #menu h1 { color: #e1e6ff; font-size: clamp(22px, 4vw, 40px); letter-spacing: .18em;
+             text-shadow: 0 0 34px rgba(110,130,255,.65); font-weight: bold; }
+  #menu .tagline { color: #8c91b4; margin: 14px 0 44px; }
+  .opt { color: #c8cdeb; font-size: clamp(15px, 2vw, 20px); text-align: left;
+         padding: 13px 22px; margin: 10px auto; width: 100%; max-width: 560px;
+         border: 1px solid #2a3054; border-radius: 10px; cursor: pointer;
+         background: rgba(16,19,40,.65); transition: all .15s; }
+  .opt:hover { border-color: #7e93ff; box-shadow: 0 0 18px rgba(110,130,255,.25);
+               color: #fff; }
+  .opt span { color: #6b7099; font-size: .8em; float: right; margin-top: .2em; }
+  #inputrow { max-width: 560px; margin: 18px auto 0; }
+  #inputrow.hidden { display: none; }
+  #numin { width: 100%; padding: 13px 16px; font: inherit; font-size: 19px;
+           color: #f0f2ff; background: #14182e; border: 1px solid #7e93ff;
+           border-radius: 10px; outline: none; box-shadow: 0 0 18px rgba(110,130,255,.3); }
+  #inerr { color: #ff8a8a; font-size: 13px; margin-top: 8px; min-height: 1.2em;
+           text-align: left; }
+  #menuhint { color: #565b7c; font-size: 12px; margin-top: 40px; line-height: 1.8; }
+
+  #err { position: fixed; top: 0; width: 100%; z-index: 99; background: #5b1620;
+         color: #ffd9d9; padding: 10px 16px; font-size: 14px; display: none; }
+
+  #chart { position: fixed; right: 26px; bottom: 100px; z-index: 7; width: 546px;
+           padding: 10px 12px 8px; background: rgba(9,12,26,.42);
+           border: 1px solid rgba(126,147,255,.35); backdrop-filter: blur(7px);
+           clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px,
+                              100% 100%, 0 100%); }
+  #chart.hidden { display: none; }
+  #chart-head { display: flex; justify-content: space-between; align-items: baseline;
+                color: #c9d2f5; font-size: 12.5px; letter-spacing: .22em;
+                margin-bottom: 7px; }
+  #chart-head .dim { color: #6b7099; letter-spacing: .05em; }
+  #chartcv { width: 520px; height: 260px; display: block; cursor: crosshair; }
+</style>
+<script type="importmap">
+{ "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="err"></div>
+<div id="labels"></div>
+
+<div id="hud" class="hidden">
+  <div id="readout">
+    <div>value&nbsp; <span class="v" id="ro-value"></span></div>
+    <div>step&nbsp;&nbsp; <span id="ro-step"></span></div>
+    <div>speed&nbsp; <span id="ro-speed"></span></div>
+    <div>bloom&nbsp; <span id="ro-bloom"></span></div>
+  </div>
+  <div id="loopbanner">
+    <div class="big">4 → 2 → 1 → 4 → …</div>
+    <div class="sub">trapped in the 4-2-1 loop, like every number ever tested</div>
+  </div>
+  <div id="hint">SPACE pause &nbsp;·&nbsp; ↑/↓ or wheel speed &nbsp;·&nbsp; ←/→ scrub
+    &nbsp;·&nbsp; V overview (drag rotate, wheel zoom) &nbsp;·&nbsp; TAB hud
+    &nbsp;·&nbsp; R menu</div>
+  <div id="bar"><div id="barfill"></div></div>
+</div>
+
+<div id="chart" class="hidden">
+  <div id="chart-head"><span>ALTITUDE</span><span class="dim">log₁₀(value) · step</span></div>
+  <canvas id="chartcv"></canvas>
+</div>
+
+<div id="menu">
+  <div id="menu-inner">
+    <h1>C O L L A T Z&nbsp;&nbsp;V O Y A G E</h1>
+    <div class="tagline">every number falls. watch yours.</div>
+    <div class="opt" id="opt-type">[1]&nbsp; type a number <span>plain · 3e9 · 7*10^120</span></div>
+    <div class="opt" id="opt-rand">[2]&nbsp; random number <span>up to 12 digits</span></div>
+    <div class="opt" id="opt-huge">[3]&nbsp; colossal random <span>10^50 … 10^300</span></div>
+    <div id="inputrow" class="hidden">
+      <input id="numin" autocomplete="off" spellcheck="false"
+             placeholder="27, 3e9, 7*10^120, 10^100 …">
+      <div id="inerr"></div>
+    </div>
+    <div id="menuhint">1 / 2 / 3 select · ENTER confirm · ESC back<br>
+      even step bends the stream +7.5°, odd −14.5° — that curl is the mathematics</div>
+  </div>
+</div>
+
+<!-- ============ math core: plain script, no dependencies, self-testable ==== -->
+<script>
+"use strict";
+const MC = (() => {
+  const MAX_STEPS = 150000;
+  const STEP_LEN = 7.0;
+  const D = Math.PI / 180;
+  const YAW_EVEN = 7.5 * D, YAW_ODD = -14.5 * D;
+  const ALT_PER_DECADE = 16.0;  // world units of height per factor 10 in value
+
+  // sequence from n down to 1 + EXACT per-step bit lengths (halving is exactly
+  // -1 bit; 3n+1 is +1 or +2, decided by one comparison). Exactness matters:
+  // height derives from bits, and merging streams must agree on heights.
+  function collatz(n) {
+    const seq = [n];
+    let bits = n.toString(2).length;
+    const bitArr = [bits];
+    while (n !== 1n && seq.length < MAX_STEPS) {
+      if (n % 2n === 0n) { n = n / 2n; bits -= 1; }
+      else {
+        const lim = 1n << BigInt(bits + 1);
+        n = 3n * n + 1n;
+        bits += n >= lim ? 2 : 1;
+      }
+      seq.push(n);
+      bitArr.push(bits);
+    }
+    return { seq, bits: bitArr };
+  }
+
+  // '123' | '1,234' | '3e9' | '2.5*10^6' | '10^100'  ->  BigInt | null
+  function parseNumber(text) {
+    const t = text.trim().toLowerCase().replace(/[, ]/g, "");
+    if (!t) return null;
+    try {
+      const mantExp = (m, e) => {
+        const exp = parseInt(e, 10);
+        if (!/^\d+(\.\d+)?$/.test(m) || !Number.isFinite(exp) || exp < 0) return null;
+        const dot = m.indexOf(".");
+        const digits = m.replace(".", "");
+        const frac = dot < 0 ? 0 : m.length - dot - 1;
+        if (exp - frac < 0) return null;
+        return BigInt(digits) * 10n ** BigInt(exp - frac);
+      };
+      if (t.includes("*10^")) { const [m, e] = t.split("*10^"); return mantExp(m, e); }
+      if (t.startsWith("10^")) return mantExp("1", t.slice(3));
+      if (t.includes("e")) { const [m, e] = t.split("e"); return mantExp(m, e); }
+      if (!/^\d+$/.test(t)) return null;
+      return BigInt(t);
+    } catch { return null; }
+  }
+
+  function sci(n) {
+    const s = n.toString();
+    if (s.length <= 12) return n.toLocaleString("en-US");
+    return `${s[0]}.${s.slice(1, 4)}×10^${s.length - 1}`;
+  }
+  function labelText(n) {
+    const s = n.toString();
+    if (s.length <= 8) return n.toLocaleString("en-US");
+    return `${s[0]}.${s.slice(1, 3)}e${s.length - 1}`;
+  }
+
+  // 3D points for a sequence, index 0 = start value. The path curls in the
+  // horizontal plane by parity (even bends +7.5°, odd −14.5°) while its
+  // ALTITUDE is log10(value): 3n+1 surges climb, halving runs dive.
+  // Grown backwards from 1 (fixed origin + heading), and height is a pure
+  // function of the value, so shared suffixes get IDENTICAL coordinates —
+  // that is how streams visually merge.
+  const LOG10_2 = Math.log10(2);
+  function buildPositions(seq, bits) {
+    const L = seq.length;
+    const pts = new Float64Array(L * 3);
+    const alt = i => (bits[i] - 1) * LOG10_2 * ALT_PER_DECADE;
+    let ang = 0, x = 0, z = 0;
+    pts[(L - 1) * 3 + 1] = alt(L - 1);
+    for (let i = L - 2; i >= 0; i--) {           // walk 1 -> ... -> seq[0]
+      ang += seq[i] % 2n === 0n ? YAW_EVEN : YAW_ODD;  // parity upstream
+      x += Math.sin(ang) * STEP_LEN;
+      z += Math.cos(ang) * STEP_LEN;
+      pts[i*3] = x; pts[i*3+1] = alt(i); pts[i*3+2] = z;
+    }
+    return pts;
+  }
+
+  function randBigInt(digits) {
+    let s = String(1 + Math.floor(Math.random() * 9));
+    for (let i = 1; i < digits; i++) s += Math.floor(Math.random() * 10);
+    return BigInt(s);
+  }
+
+  function selfTest() {
+    const fails = [];
+    const ok = (cond, msg) => { if (!cond) fails.push(msg); };
+    ok(parseNumber("27") === 27n, "parse 27");
+    ok(parseNumber("1,234") === 1234n, "parse 1,234");
+    ok(parseNumber("3e9") === 3000000000n, "parse 3e9");
+    ok(parseNumber("7*10^120") === 7n * 10n ** 120n, "parse 7*10^120");
+    ok(parseNumber("2.5*10^6") === 2500000n, "parse 2.5*10^6");
+    ok(parseNumber("10^100") === 10n ** 100n, "parse 10^100");
+    ok(parseNumber("banana") === null, "reject banana");
+    const A = collatz(27n), B = collatz(31n);
+    const a = A.seq, b = B.seq;
+    ok(a.length === 112, "collatz(27) has 112 values");
+    ok(a.every((v, k) => A.bits[k] === v.toString(2).length),
+       "incremental bit lengths are exact");
+    const setB = new Set(b);
+    const i = a.findIndex(v => setB.has(v));
+    const j = b.indexOf(a[i]);
+    const pa = buildPositions(a, A.bits), pb = buildPositions(b, B.bits);
+    let merged = i >= 0;
+    for (let k = 0; merged && k < (a.length - i) * 3; k++)
+      if (Math.abs(pa[(i * 3) + k] - pb[(j * 3) + k]) > 1e-9) merged = false;
+    ok(merged, "shared suffixes get identical coordinates");
+    return fails;
+  }
+
+  return { MAX_STEPS, STEP_LEN, collatz, parseNumber, sci, labelText,
+           buildPositions, randBigInt, selfTest };
+})();
+</script>
+
+<!-- ============================ the app ================================== -->
+<script type="module">
+import * as THREE from "three";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+
+window.__appStarted = true;
+const fails = MC.selfTest();
+if (fails.length) showErr("math self-test failed: " + fails.join(", "));
+else console.log("%cCollatz Voyage — math self-test passed", "color:#8f8");
+
+function showErr(msg) {
+  const e = document.getElementById("err");
+  e.textContent = msg; e.style.display = "block";
+}
+
+// ------------------------------------------------------------- constants
+const N_COMPANIONS = 14;
+const FLIGHT_SECONDS = 55;
+
+// ------------------------------------------------------------- three setup
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x05060e);
+const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.1, 7000);
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(
+  new THREE.Vector2(innerWidth, innerHeight), 1.25, 0.55, 0.0);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+});
+
+// ------------------------------------------------------------- textures
+function radialTexture(r, g, b, size = 128) {
+  const cv = document.createElement("canvas");
+  cv.width = cv.height = size;
+  const ctx = cv.getContext("2d");
+  const grad = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+  grad.addColorStop(0, `rgba(${r},${g},${b},1)`);
+  grad.addColorStop(0.35, `rgba(${r},${g},${b},.45)`);
+  grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  return new THREE.CanvasTexture(cv);
+}
+const flareTex = radialTexture(255, 230, 200);
+
+// ------------------------------------------------------------- starfield
+// stars wrap in a cube around the camera inside the vertex shader
+const starGeo = new THREE.BufferGeometry();
+{
+  const N = 4000, SIZE = 5200;
+  const pos = new Float32Array(N * 3), aSize = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    pos[i*3] = (Math.random() - .5) * SIZE;
+    pos[i*3+1] = (Math.random() - .5) * SIZE;
+    pos[i*3+2] = (Math.random() - .5) * SIZE;
+    aSize[i] = 0.6 + Math.random() * 2.2;
+  }
+  starGeo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  starGeo.setAttribute("aSize", new THREE.BufferAttribute(aSize, 1));
+}
+const starMat = new THREE.ShaderMaterial({
+  uniforms: { uCam: { value: new THREE.Vector3() }, uTime: { value: 0 } },
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  vertexShader: /* glsl */`
+    uniform vec3 uCam; uniform float uTime;
+    attribute float aSize;
+    varying float vA;
+    void main() {
+      float S = 5200.0;
+      vec3 p = mod(position - uCam + S*0.5, S) - S*0.5 + uCam;
+      vec4 mv = modelViewMatrix * vec4(p, 1.0);
+      float d = -mv.z;
+      float tw = 0.75 + 0.25 * sin(uTime * (0.5 + aSize) + position.x);
+      vA = clamp(1.8 - d / 1500.0, 0.0, 1.0) * tw;
+      gl_PointSize = aSize * 340.0 / max(d, 1.0);
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: /* glsl */`
+    varying float vA;
+    void main() {
+      float r = length(gl_PointCoord - 0.5) * 2.0;
+      float a = pow(max(0.0, 1.0 - r), 2.5);
+      gl_FragColor = vec4(vec3(0.62, 0.65, 0.78) * a * vA, 1.0);
+    }`,
+});
+scene.add(new THREE.Points(starGeo, starMat));
+
+// ------------------------------------------------------------- nebulae
+const nebulaGroup = new THREE.Group();
+[[18, 24, 80, 1500], [55, 16, 80, 1900], [12, 55, 75, 1300],
+ [40, 20, 90, 2100], [15, 30, 70, 1700]].forEach(([r, g, b, dist], i) => {
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: radialTexture(r, g, b, 256), transparent: true, opacity: 0.34,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  const a = i * 2.39996, e = (i % 3 - 1) * 0.5;
+  spr.position.set(Math.cos(a) * dist, Math.sin(e) * dist * 0.5, Math.sin(a) * dist);
+  spr.scale.setScalar(1400 + i * 260);
+  nebulaGroup.add(spr);
+});
+scene.add(nebulaGroup);
+
+// ------------------------------------------------------------- deep sky
+// far scenery riding on a camera-following group, so it never gets closer:
+// an Andromeda-style spiral, a milky-way band, two fuzzy satellite galaxies
+const skyGroup = new THREE.Group();
+scene.add(skyGroup);
+const softTex = radialTexture(255, 255, 255, 64);
+
+function pointsCloud(pos, col, size, opacity) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  const p = new THREE.Points(g, new THREE.PointsMaterial({
+    size, map: softTex, vertexColors: true, transparent: true, opacity,
+    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: false,
+  }));
+  p.frustumCulled = false;
+  return p;
+}
+
+const galaxySpin = new THREE.Group();
+{
+  // two log-spiral arms, dense warm bulge fading to cool blue tips
+  const N = 5200, R = 260;
+  const pos = new Float32Array(N * 3), col = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) {
+    const t = Math.pow(Math.random(), 1.7);           // 0 core .. 1 rim
+    const ang = (i % 2) * Math.PI + t * 4.8
+              + (Math.random() - .5) * (0.75 - 0.5 * t);
+    const r = t * R;
+    pos[i*3]   = Math.cos(ang) * r + (Math.random() - .5) * 9;
+    pos[i*3+1] = (Math.random() - .5) * (1 - t) * 24;
+    pos[i*3+2] = Math.sin(ang) * r + (Math.random() - .5) * 9;
+    const b = (0.25 + 0.75 * Math.random()) * (1.1 - t) * 0.5;
+    col[i*3]   = b * (1.0 - 0.45 * t);                // warm -> blue
+    col[i*3+1] = b * (0.85 - 0.20 * t);
+    col[i*3+2] = b * (0.65 + 0.35 * t);
+  }
+  galaxySpin.add(pointsCloud(pos, col, 2.2, 0.6));
+  const core = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: radialTexture(255, 225, 185, 128), transparent: true, opacity: 0.16,
+    blending: THREE.AdditiveBlending, depthWrite: false }));
+  core.scale.setScalar(170);
+  const halo = new THREE.Sprite(core.material.clone());
+  halo.material.opacity = 0.06;
+  halo.scale.set(560, 380, 1);
+  galaxySpin.add(core, halo);
+
+  const anchor = new THREE.Group();                   // place + incline it
+  anchor.position.set(0.55, 0.30, -0.78).normalize().multiplyScalar(2900);
+  anchor.rotation.set(1.05, 0.35, 0.45);
+  anchor.add(galaxySpin);
+  skyGroup.add(anchor);
+}
+
+{
+  // milky-way band: a great circle of faint clumped stardust
+  const N = 6000, RAD = 2600;
+  const pos = new Float32Array(N * 3), col = new Float32Array(N * 3);
+  const n = new THREE.Vector3(0.25, 0.90, 0.35).normalize();
+  const u = new THREE.Vector3().crossVectors(n, new THREE.Vector3(1, 0, 0)).normalize();
+  const w = new THREE.Vector3().crossVectors(n, u);
+  const _dir = new THREE.Vector3();
+  for (let i = 0; i < N; i++) {
+    const lon = Math.random() * Math.PI * 2;
+    const lat = (Math.random() + Math.random() + Math.random() - 1.5) * 0.09;
+    _dir.copy(u).multiplyScalar(Math.cos(lon) * Math.cos(lat))
+        .addScaledVector(w, Math.sin(lon) * Math.cos(lat))
+        .addScaledVector(n, Math.sin(lat));
+    pos[i*3] = _dir.x * RAD; pos[i*3+1] = _dir.y * RAD; pos[i*3+2] = _dir.z * RAD;
+    const clump = 0.55 + 0.45 * Math.sin(lon * 3.1 + Math.sin(lon * 7.3));
+    const b = (0.05 + 0.28 * Math.random() * Math.random()) * clump;
+    const warm = Math.random() < 0.12;
+    col[i*3] = b * (warm ? 1.0 : 0.75); col[i*3+1] = b * 0.8;
+    col[i*3+2] = b * (warm ? 0.6 : 1.0);
+  }
+  skyGroup.add(pointsCloud(pos, col, 2.6, 0.5));
+}
+
+// two small fuzzy satellite galaxies (magellanic smudges)
+[[-0.7, 0.15, 0.65, 60, 0.10], [0.2, -0.45, 0.85, 42, 0.08]]
+  .forEach(([x, y, z, s, o]) => {
+    const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: radialTexture(210, 215, 255, 64), transparent: true, opacity: o,
+      blending: THREE.AdditiveBlending, depthWrite: false }));
+    spr.position.set(x, y, z).normalize().multiplyScalar(3100);
+    spr.scale.set(s * 1.6, s, 1);
+    skyGroup.add(spr);
+  });
+
+// ------------------------------------------------------------- stream shaders
+// distance at which streams fade out — shared by every stream material and
+// ramped up when the camera pulls out to the whole-corkscrew overview
+const FADE = { value: 950.0 };
+const streamVert = /* glsl */`
+  uniform float uFadeD;
+  attribute vec3 aColor;
+  varying vec3 vC; varying float vFade;
+  void main() {
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    float d = -mv.z;
+    vFade = clamp(1.4 - d / uFadeD, 0.0, 1.0);
+    vC = aColor;
+    gl_Position = projectionMatrix * mv;
+  }`;
+const lineMat = opacity => new THREE.ShaderMaterial({
+  uniforms: { uOp: { value: opacity }, uFadeD: FADE },
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  vertexShader: streamVert,
+  fragmentShader: /* glsl */`
+    uniform float uOp; varying vec3 vC; varying float vFade;
+    void main() { gl_FragColor = vec4(vC * vFade * uOp, 1.0); }`,
+});
+const pointMat = (size, opacity) => new THREE.ShaderMaterial({
+  uniforms: { uOp: { value: opacity }, uSize: { value: size }, uFadeD: FADE },
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  vertexShader: /* glsl */`
+    uniform float uSize; uniform float uFadeD;
+    attribute vec3 aColor;
+    varying vec3 vC; varying float vFade;
+    void main() {
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      float d = -mv.z;
+      vFade = clamp(1.4 - d / uFadeD, 0.0, 1.0);
+      vC = aColor;
+      gl_PointSize = clamp(uSize * 300.0 / max(d, 1.0), 0.0, 40.0);
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: /* glsl */`
+    uniform float uOp; varying vec3 vC; varying float vFade;
+    void main() {
+      float r = length(gl_PointCoord - 0.5) * 2.0;
+      float a = pow(max(0.0, 1.0 - r), 2.0);
+      gl_FragColor = vec4(vC * a * vFade * uOp, 1.0);
+    }`,
+});
+
+// big values violet-blue, small warm gold (same formula as the python build)
+function valueHue(bits, startBits) {
+  const t = Math.min(1, bits / startBits);
+  return 0.72 * t + 0.10 * (1 - t);
+}
+const _c = new THREE.Color();
+function streamColors(bits, startBits, sat, light) {
+  const cols = new Float32Array(bits.length * 3);
+  for (let i = 0; i < bits.length; i++) {
+    _c.setHSL(valueHue(bits[i], startBits), sat, light);
+    cols[i*3] = _c.r; cols[i*3+1] = _c.g; cols[i*3+2] = _c.b;
+  }
+  return cols;
+}
+
+function makeStreamObjects(pts64, bits, startBits, main, fadeFrom = -1) {
+  const pos = new Float32Array(pts64);
+  const cols = streamColors(bits, startBits, main ? 0.7 : 0.55, main ? 0.55 : 0.42);
+  if (fadeFrom >= 0) {   // dissolve past the merge — the main stream carries on alone
+    const span = Math.max(1, bits.length - fadeFrom);
+    for (let i = fadeFrom; i < bits.length; i++) {
+      const f = 1 - (i - fadeFrom) / span;
+      cols[i*3] *= f; cols[i*3+1] *= f; cols[i*3+2] *= f;
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute("aColor", new THREE.BufferAttribute(cols, 3));
+  const line = new THREE.Line(geo, lineMat(main ? 0.62 : 0.16));
+  const points = new THREE.Points(geo, pointMat(main ? 3.0 : 1.3, main ? 1.0 : 0.3));
+  line.frustumCulled = points.frustumCulled = false;
+  return { geo, line, points };
+}
+
+// ------------------------------------------------------------- flight state
+const state = {
+  mode: "idle",              // idle | fly | loop
+  attract: false,
+  seq: null, bits: null, pts: null,
+  companions: [],            // { seq, pts, mergeIdx, mergePos, flare, particles }
+  loopPts: null,
+  s: 0, baseSpeed: 8, speedMult: 1, paused: false,
+  introT: 0, loopT: 0, hud: true,
+  group: null, particlesObj: null, particleList: [],
+  lastHudIdx: -1,
+};
+
+function pathPoint(pts, s, out) {
+  const L = pts.length / 3;
+  const i = Math.max(0, Math.min(Math.floor(s), L - 2));
+  const f = Math.max(0, Math.min(s - i, 1));
+  out.set(pts[i*3]     * (1-f) + pts[(i+1)*3]     * f,
+          pts[i*3 + 1] * (1-f) + pts[(i+1)*3 + 1] * f,
+          pts[i*3 + 2] * (1-f) + pts[(i+1)*3 + 2] * f);
+  return out;
+}
+
+// mean of the path over [s0, s1] — a spatial low-pass so the camera rides the
+// terrain's trend instead of ticking over every ±log-step of altitude
+const _tmp = new THREE.Vector3();
+function pathAvg(pts, s0, s1, out) {
+  const N = 5;
+  out.set(0, 0, 0);
+  for (let k = 0; k < N; k++) {
+    pathPoint(pts, s0 + (s1 - s0) * k / (N - 1), _tmp);
+    out.add(_tmp);
+  }
+  return out.multiplyScalar(1 / N);
+}
+
+function disposeFlight() {
+  if (state.group) {
+    scene.remove(state.group);
+    state.group.traverse(o => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material && o.material.dispose) o.material.dispose();
+    });
+  }
+  state.group = null;
+  state.companions = [];
+}
+
+function startFlight(n, attract = false) {
+  disposeFlight();
+  if (n < 1n) n = 1n;
+  const { seq, bits } = n > 1n ? MC.collatz(n) : MC.collatz(4n);
+  const startBits = Math.max(3, bits[0]);
+  state.seq = seq; state.bits = bits;
+  state.pts = MC.buildPositions(seq, bits);
+  state.loopPts = MC.buildPositions([4n, 2n, 1n], [3, 2, 1]); // matches every tail
+  state.attract = attract;
+
+  // framing for the finale overview: whole corkscrew in side profile,
+  // camera up = start->1 chord, so the descent runs top-to-bottom on screen
+  {
+    const p = state.pts;
+    let mnx = 1e30, mny = 1e30, mnz = 1e30, mxx = -1e30, mxy = -1e30, mxz = -1e30;
+    for (let i = 0; i < p.length; i += 3) {
+      if (p[i] < mnx) mnx = p[i];     if (p[i] > mxx) mxx = p[i];
+      if (p[i+1] < mny) mny = p[i+1]; if (p[i+1] > mxy) mxy = p[i+1];
+      if (p[i+2] < mnz) mnz = p[i+2]; if (p[i+2] > mxz) mxz = p[i+2];
+    }
+    const center = new THREE.Vector3((mnx+mxx)/2, (mny+mxy)/2, (mnz+mxz)/2);
+    const radius = Math.max(30,
+      Math.sqrt((mxx-mnx)**2 + (mxy-mny)**2 + (mxz-mnz)**2) / 2);
+    const axis = new THREE.Vector3(p[0], p[1], p[2]);   // start -> 1 (origin)
+    if (axis.lengthSq() < 1) axis.set(0, 1, 0); else axis.normalize();
+    const side = new THREE.Vector3().crossVectors(axis, new THREE.Vector3(0, 1, 0));
+    if (side.lengthSq() < 0.05)
+      side.crossVectors(axis, new THREE.Vector3(1, 0, 0));
+    side.normalize();
+    const tanY = Math.tan(camera.fov * Math.PI / 360);
+    const dist = Math.max(120,
+      radius / Math.min(tanY, tanY * camera.aspect) * 1.15);
+    state.overview = { center, axis, side, dist };
+    camera.far = Math.max(7000, dist * 2.5);
+    camera.updateProjectionMatrix();
+  }
+
+  const group = new THREE.Group();
+  state.group = group;
+
+  const mainObj = makeStreamObjects(state.pts, bits, startBits, true);
+  group.add(mainObj.line, mainObj.points);
+
+  // companions: neighbours of n merge fast (visible collisions) + random sizes
+  const seeds = new Set();
+  const digits = Math.max(2, n.toString().length);
+  const near = [-3, -2, -1, 1, 2, 3, 5, 8, 13, -8];
+  for (let k = 0; k < N_COMPANIONS / 2; k++) {
+    const off = BigInt(near[Math.floor(Math.random() * near.length)])
+              * BigInt(1 + Math.floor(Math.random() * 4));
+    const s = n + off;
+    if (s >= 3n && s !== n) seeds.add(s);
+  }
+  while (seeds.size < N_COMPANIONS)
+    seeds.add(MC.randBigInt(2 + Math.floor(Math.random() * Math.max(2, digits - 1))));
+  const mainSet = new Set(seq);
+  for (const seed of seeds) {
+    if (seed === n) continue;
+    const c = MC.collatz(seed);
+    const cPtsFull = MC.buildPositions(c.seq, c.bits);
+    let mergeIdx = -1;
+    for (let i = 0; i < c.seq.length; i++)
+      if (mainSet.has(c.seq[i])) { mergeIdx = i; break; }
+    // draw only up to shortly after the collision — beyond it the companion
+    // is coordinate-identical to the main stream and would stack additively
+    const keep = mergeIdx >= 0
+      ? Math.min(c.seq.length, mergeIdx + 8) : c.seq.length;
+    const cPts = cPtsFull.slice(0, keep * 3);
+    const obj = makeStreamObjects(cPts, c.bits.slice(0, keep), startBits,
+                                  false, mergeIdx);
+    group.add(obj.line, obj.points);
+    let flare = null, mergePos = null;
+    if (mergeIdx >= 0) {
+      mergePos = new THREE.Vector3(
+        cPts[mergeIdx*3], cPts[mergeIdx*3+1], cPts[mergeIdx*3+2]);
+      flare = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: flareTex, transparent: true, opacity: 0.8,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+        color: new THREE.Color(0xffb066),
+      }));
+      flare.position.copy(mergePos);
+      group.add(flare);
+    }
+    state.companions.push({
+      seq: c.seq, pts: cPts, keep, mergeIdx, mergePos, flare,
+      particles: [Math.random() * (keep - 1), Math.random() * (keep - 1)],
+    });
+  }
+
+  // 4-2-1 loop marker: golden triangle + comet, waiting at the origin
+  {
+    const lp = state.loopPts;
+    const tri = new THREE.BufferGeometry();
+    tri.setAttribute("position", new THREE.BufferAttribute(new Float32Array([
+      lp[0], lp[1], lp[2], lp[3], lp[4], lp[5], lp[6], lp[7], lp[8],
+    ]), 3));
+    const triLine = new THREE.LineLoop(tri, new THREE.LineBasicMaterial({
+      color: 0xffca70, transparent: true, opacity: 0.5,
+      blending: THREE.AdditiveBlending, depthWrite: false }));
+    triLine.frustumCulled = false;
+    group.add(triLine);
+    state.comet = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: flareTex, transparent: true, blending: THREE.AdditiveBlending,
+      depthWrite: false }));
+    state.comet.scale.setScalar(3);
+    state.comet.material.opacity = 0.7;
+    group.add(state.comet);
+    state.loopGlows = [0, 1, 2].map(k => {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: flareTex, color: 0xffc070, transparent: true,
+        blending: THREE.AdditiveBlending, depthWrite: false }));
+      s.position.set(lp[k*3], lp[k*3+1], lp[k*3+2]);
+      group.add(s);
+      return s;
+    });
+  }
+
+  // particles racing along the streams — one dynamic Points buffer for all
+  {
+    state.particleList = [];
+    for (let i = 0; i < 9; i++)
+      state.particleList.push({ pts: state.pts, L: seq.length,
+        p: Math.random() * (seq.length - 1), v: 0, main: true });
+    for (const c of state.companions)
+      for (const p0 of c.particles)
+        state.particleList.push({ pts: c.pts, L: c.keep, p: p0, v: 22, main: false });
+    const P = state.particleList.length;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position",
+      new THREE.BufferAttribute(new Float32Array(P * 3), 3));
+    const cols = new Float32Array(P * 3);
+    state.particleList.forEach((pt, i) => {
+      const c = pt.main ? [1, 0.96, 0.86] : [0.6, 0.7, 1];
+      cols[i*3] = c[0]; cols[i*3+1] = c[1]; cols[i*3+2] = c[2];
+    });
+    geo.setAttribute("aColor", new THREE.BufferAttribute(cols, 3));
+    state.particlesObj = new THREE.Points(geo, pointMat(2.2, 1.0));
+    state.particlesObj.frustumCulled = false;
+    group.add(state.particlesObj);
+  }
+
+  scene.add(group);
+
+  state.s = 0;
+  state.baseSpeed = Math.min(60, Math.max(3, (seq.length - 1) / FLIGHT_SECONDS));
+  state.speedMult = attract ? 0.5 : 1;
+  state.paused = false;
+  state.introT = 0;
+  state.mode = "fly";
+  state.startBits = startBits;
+  state.lastHudIdx = -1;
+  state.ovToggle = null;           // finale view back on automatic
+  orbit.yaw = 0; orbit.pitch = 0; orbit.zoom = 1;
+  orbit.lastT = -1e9; orbit.dragging = false;
+  state.chartDrawn = false;
+  chartBase = null;
+  camInit = false;                 // snap the smoothed camera to the new flight
+  hudEl.classList.toggle("hidden", attract);
+}
+
+// ------------------------------------------------------------- labels
+const labelBox = document.getElementById("labels");
+const labelPool = [];
+for (let i = 0; i < 34; i++) {
+  const d = document.createElement("div");
+  d.className = "lbl";
+  labelBox.appendChild(d);
+  labelPool.push(d);
+}
+const _v = new THREE.Vector3();
+function projectToScreen(x, y, z) {
+  _v.set(x, y, z).project(camera);
+  if (_v.z < -1 || _v.z > 1) return null;
+  return [(_v.x * 0.5 + 0.5) * innerWidth, (-_v.y * 0.5 + 0.5) * innerHeight];
+}
+
+function updateLabels() {
+  let used = 0;
+  const take = () => used < labelPool.length ? labelPool[used++] : null;
+  const camPos = camera.position;
+
+  if (state.hud && !state.attract && state.mode === "fly") {
+    // values at the bends of the main stream ahead of the camera
+    const L = state.seq.length;
+    const i0 = Math.max(0, Math.floor(state.s) - 4);
+    const i1 = Math.min(L - 1, i0 + 90);
+    let lastX = -1e9, lastY = -1e9;
+    for (let i = i0; i <= i1; i++) {
+      const x = state.pts[i*3], y = state.pts[i*3+1], z = state.pts[i*3+2];
+      const d = camPos.distanceTo(_v.set(x, y, z));
+      if (d < 22 || d > 330) continue;
+      const sc = projectToScreen(x, y, z);
+      if (!sc) continue;
+      if ((sc[0]-lastX)**2 + (sc[1]-lastY)**2 < 78**2) continue;
+      const el = take(); if (!el) break;
+      el.className = "lbl";
+      el.textContent = MC.labelText(state.seq[i]);
+      el.style.left = sc[0] + "px"; el.style.top = sc[1] + "px";
+      el.style.opacity = Math.min(1, (330 - d) / 200);
+      el.style.display = "block";
+      lastX = sc[0]; lastY = sc[1];
+    }
+    // shared value where a companion collides with the main stream
+    for (const c of state.companions) {
+      if (!c.mergePos) continue;
+      const d = camPos.distanceTo(c.mergePos);
+      if (d > 500) continue;
+      const sc = projectToScreen(c.mergePos.x, c.mergePos.y, c.mergePos.z);
+      if (!sc) continue;
+      const el = take(); if (!el) break;
+      el.className = "lbl merge";
+      el.textContent = MC.labelText(c.seq[c.mergeIdx]);
+      el.style.left = sc[0] + "px"; el.style.top = sc[1] + "px";
+      el.style.opacity = 0.85;
+      el.style.display = "block";
+    }
+  }
+  if (state.hud && !state.attract && state.mode === "loop") {
+    const lp = state.loopPts;
+    const dLoop = camPos.distanceTo(_v.set(lp[0], lp[1], lp[2]));
+    if (dLoop < 400) {
+      ["4", "2", "1"].forEach((txt, k) => {
+        const sc = projectToScreen(lp[k*3], lp[k*3+1], lp[k*3+2]);
+        if (!sc) return;
+        const el = take(); if (!el) return;
+        el.className = "lbl loopnum";
+        el.textContent = txt;
+        el.style.left = sc[0] + "px"; el.style.top = sc[1] + "px";
+        el.style.opacity = 1;
+        el.style.display = "block";
+      });
+    } else {
+      // overview: annotate the two ends of the corkscrew
+      const marks = [
+        [state.pts[0], state.pts[1], state.pts[2], MC.labelText(state.seq[0])],
+        [lp[6], lp[7], lp[8], "4 · 2 · 1"],
+      ];
+      for (const [x, y, z, txt] of marks) {
+        const sc = projectToScreen(x, y, z);
+        if (!sc) continue;
+        const el = take(); if (!el) continue;
+        el.className = "lbl merge";
+        el.textContent = txt;
+        el.style.left = sc[0] + "px"; el.style.top = sc[1] + "px";
+        el.style.opacity = 0.9;
+        el.style.display = "block";
+      }
+    }
+  }
+  for (let i = used; i < labelPool.length; i++) labelPool[i].style.display = "none";
+}
+
+// ------------------------------------------------------------- HUD
+const hudEl = document.getElementById("hud");
+const roValue = document.getElementById("ro-value");
+const roStep = document.getElementById("ro-step");
+const roSpeed = document.getElementById("ro-speed");
+const roBloom = document.getElementById("ro-bloom");
+const barFill = document.getElementById("barfill");
+const loopBanner = document.getElementById("loopbanner");
+
+function updateHud() {
+  if (state.mode === "idle" || state.attract) return;
+  const L = state.seq.length;
+  const i = Math.min(Math.floor(state.s), L - 1);
+  if (i !== state.lastHudIdx) {
+    roValue.textContent = MC.sci(state.seq[i]);
+    roStep.textContent = `${i.toLocaleString()} / ${(L-1).toLocaleString()}`;
+    state.lastHudIdx = i;
+  }
+  roSpeed.textContent = `x${state.speedMult.toFixed(2)}` +
+                        (state.paused ? "  [paused]" : "");
+  roBloom.textContent = bloom.strength.toFixed(2) + "  ( [ / ] )";
+  barFill.style.width = (100 * state.s / Math.max(1, L - 1)) + "%";
+  loopBanner.style.display = state.mode === "loop" ? "block" : "none";
+}
+
+// ------------------------------------------------------- altitude chart
+// shown in overview mode: log10(value) per step, peak annotated
+const chartEl = document.getElementById("chart");
+const chartCv = document.getElementById("chartcv");
+const CW = 520, CH = 260, PAD = { l: 44, r: 12, t: 12, b: 22 };
+const SUP = "⁰¹²³⁴⁵⁶⁷⁸⁹";
+const sup = k => String(k).split("").map(c => SUP[+c]).join("");
+let chartBase = null, chartPeak = 0, chartYMax = 1;
+
+function chartXY(step, lg) {
+  const L = state.seq.length;
+  return [PAD.l + (step / Math.max(1, L - 1)) * (CW - PAD.l - PAD.r),
+          PAD.t + (1 - lg / chartYMax) * (CH - PAD.t - PAD.b)];
+}
+
+function drawChart() {
+  const dpr = Math.min(devicePixelRatio, 2);
+  chartCv.width = CW * dpr; chartCv.height = CH * dpr;
+  const ctx = chartCv.getContext("2d");
+  ctx.scale(dpr, dpr);
+  ctx.font = "12px Consolas, monospace";
+
+  const L = state.seq.length, LOG2 = Math.log10(2);
+  const logs = state.bits.map(b => Math.max(0, (b - 1) * LOG2));
+  chartPeak = 0;
+  for (let i = 1; i < L; i++) if (state.seq[i] > state.seq[chartPeak]) chartPeak = i;
+  chartYMax = Math.max(2, logs[chartPeak] * 1.1);
+
+  // recessive grid: horizontal lines at 10^k
+  const tick = Math.max(1, Math.ceil(chartYMax / 4));
+  ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  for (let k = 0; k <= chartYMax; k += tick) {
+    const [, y] = chartXY(0, k);
+    ctx.strokeStyle = k === 0 ? "rgba(150,160,210,.30)" : "rgba(140,160,255,.10)";
+    ctx.beginPath(); ctx.moveTo(PAD.l, y); ctx.lineTo(CW - PAD.r, y); ctx.stroke();
+    ctx.fillStyle = "#6b7099";
+    ctx.fillText("10" + sup(k), PAD.l - 5, y);
+  }
+  // x labels: first and last step
+  ctx.textBaseline = "top"; ctx.textAlign = "left";
+  ctx.fillText("0", PAD.l, CH - PAD.b + 4);
+  ctx.textAlign = "right";
+  ctx.fillText((L - 1).toLocaleString(), CW - PAD.r, CH - PAD.b + 4);
+
+  // downsample per pixel column, keeping bucket maxima so peaks survive
+  const cols = CW - PAD.l - PAD.r;
+  const path = [];
+  for (let c = 0; c < cols; c++) {
+    const a = Math.floor(c * (L - 1) / cols), b = Math.max(a + 1, Math.floor((c + 1) * (L - 1) / cols));
+    let m = a;
+    for (let i = a; i <= Math.min(b, L - 1); i++) if (logs[i] > logs[m]) m = i;
+    path.push(chartXY(m, logs[m]));
+  }
+  path.push(chartXY(L - 1, logs[L - 1]));
+
+  // soft area under the line, then the 2px line itself
+  const [, y0] = chartXY(0, 0);
+  const grad = ctx.createLinearGradient(0, PAD.t, 0, y0);
+  grad.addColorStop(0, "rgba(140,160,255,.20)");
+  grad.addColorStop(1, "rgba(140,160,255,0)");
+  ctx.beginPath();
+  ctx.moveTo(path[0][0], y0);
+  for (const [x, y] of path) ctx.lineTo(x, y);
+  ctx.lineTo(path[path.length - 1][0], y0);
+  ctx.closePath();
+  ctx.fillStyle = grad; ctx.fill();
+  ctx.beginPath();
+  for (let i = 0; i < path.length; i++)
+    i ? ctx.lineTo(path[i][0], path[i][1]) : ctx.moveTo(path[i][0], path[i][1]);
+  ctx.strokeStyle = "#8ca0ff"; ctx.lineWidth = 2;
+  ctx.shadowColor = "rgba(140,160,255,.7)"; ctx.shadowBlur = 6;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // selective labels: peak (exact value), landing at 4-2-1
+  const [px, py] = chartXY(chartPeak, logs[chartPeak]);
+  ctx.beginPath(); ctx.arc(px, py, 4.5, 0, 7); ctx.fillStyle = "#ebebff"; ctx.fill();
+  ctx.lineWidth = 1.5; ctx.strokeStyle = "rgba(9,12,26,.9)"; ctx.stroke();
+  ctx.fillStyle = "#ebebff"; ctx.textBaseline = "bottom";
+  ctx.textAlign = px > CW * 0.6 ? "right" : "left";
+  ctx.fillText(MC.labelText(state.seq[chartPeak]),
+               px + (px > CW * 0.6 ? -7 : 7), py + 2);
+  const [ex, ey] = chartXY(L - 1, 0);
+  ctx.fillStyle = "#9aa2c8"; ctx.textAlign = "right"; ctx.textBaseline = "bottom";
+  ctx.fillText("4·2·1", ex - 2, ey - 3);
+
+  chartBase = document.createElement("canvas");
+  chartBase.width = chartCv.width; chartBase.height = chartCv.height;
+  chartBase.getContext("2d").drawImage(chartCv, 0, 0);
+}
+
+function chartHover(ev) {
+  if (!chartBase) return;
+  const dpr = Math.min(devicePixelRatio, 2);
+  const ctx = chartCv.getContext("2d");
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, chartCv.width, chartCv.height);
+  ctx.drawImage(chartBase, 0, 0);
+  if (!ev) return;
+  const r = chartCv.getBoundingClientRect();
+  const mx = ev.clientX - r.left;
+  if (mx < PAD.l || mx > CW - PAD.r) return;
+  const L = state.seq.length, LOG2 = Math.log10(2);
+  const i = Math.round((mx - PAD.l) / (CW - PAD.l - PAD.r) * (L - 1));
+  const lg = Math.max(0, (state.bits[i] - 1) * LOG2);
+  const [x, y] = chartXY(i, lg);
+  ctx.scale(dpr, dpr);
+  ctx.strokeStyle = "rgba(200,210,255,.35)"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x, PAD.t); ctx.lineTo(x, CH - PAD.b); ctx.stroke();
+  ctx.beginPath(); ctx.arc(x, y, 3.5, 0, 7); ctx.fillStyle = "#fff"; ctx.fill();
+  const txt = `step ${i.toLocaleString()} · ${MC.labelText(state.seq[i])}`;
+  ctx.font = "12px Consolas, monospace";
+  const w = ctx.measureText(txt).width + 14;
+  const bx = Math.min(Math.max(x - w / 2, PAD.l), CW - PAD.r - w);
+  ctx.fillStyle = "rgba(9,12,26,.85)";
+  ctx.strokeStyle = "rgba(126,147,255,.5)";
+  ctx.fillRect(bx, PAD.t, w, 19); ctx.strokeRect(bx, PAD.t, w, 19);
+  ctx.fillStyle = "#dfe5ff"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  ctx.fillText(txt, bx + 7, PAD.t + 10);
+}
+chartCv.addEventListener("pointermove", chartHover);
+chartCv.addEventListener("pointerleave", () => chartHover(null));
+chartEl.addEventListener("wheel", e => e.stopPropagation());
+
+// ------------------------------------------------------------- camera
+const _p = new THREE.Vector3(), _a = new THREE.Vector3(), _d = new THREE.Vector3();
+const _eye = new THREE.Vector3(), _far = new THREE.Vector3();
+const _loopCenter = new THREE.Vector3(), _dLook = new THREE.Vector3();
+const _sEye = new THREE.Vector3(), _sLook = new THREE.Vector3();
+const _dUp = new THREE.Vector3(0, 1, 0), _sUp = new THREE.Vector3(0, 1, 0);
+let camInit = false;
+
+const OVERVIEW_AFTER = 8;   // seconds of close 4-2-1 orbit before pulling out
+function overviewActive() {
+  return state.mode === "loop" &&
+    (state.ovToggle !== null ? state.ovToggle : state.loopT > OVERVIEW_AFTER);
+}
+
+// user-controlled orbit in overview: drag rotates, wheel zooms,
+// auto-rotation resumes 5s after the last drag
+const orbit = { yaw: 0, pitch: 0, zoom: 1, lastT: -1e9, dragging: false };
+
+function placeCamera(t, dt) {
+  _dUp.set(0, 1, 0);
+  if (state.mode === "loop" && overviewActive()) {
+    // side profile of the whole corkscrew; user drag/zoom, else slow drift
+    const o = state.overview;
+    if (t - orbit.lastT > 5) {
+      orbit.yaw += dt * 0.05;                    // resume auto-rotation
+      orbit.pitch *= Math.exp(-dt * 0.25);       // and gently level out
+    }
+    _eye.copy(o.side).applyAxisAngle(o.axis, orbit.yaw)
+        .multiplyScalar(Math.cos(orbit.pitch))
+        .addScaledVector(o.axis, Math.sin(orbit.pitch))
+        .normalize().multiplyScalar(o.dist * orbit.zoom).add(o.center);
+    _dLook.copy(o.center);
+    _dUp.copy(o.axis);            // start at the top, the 4-2-1 loop at the bottom
+  } else if (state.mode === "loop") {
+    const lp = state.loopPts;
+    _loopCenter.set((lp[0]+lp[3]+lp[6])/3, (lp[1]+lp[4]+lp[7])/3, (lp[2]+lp[5]+lp[8])/3);
+    const a = state.loopT * 0.45;
+    const r = 42 + 6 * Math.sin(state.loopT * 0.3);
+    _eye.set(_loopCenter.x + Math.cos(a) * r,
+             _loopCenter.y + 14 + 5 * Math.sin(state.loopT * 0.5),
+             _loopCenter.z + Math.sin(a) * r);
+    _dLook.copy(_loopCenter);
+  } else {
+    // spatially low-passed anchor and heading (pathAvg clamps at both ends)
+    pathAvg(state.pts, state.s - 3, state.s + 3, _p);
+    pathAvg(state.pts, state.s + 4, state.s + 12, _a);
+    _d.subVectors(_a, _p);
+    if (_d.lengthSq() < 1e-12) _d.set(0, 0, 1); else _d.normalize();
+    _eye.copy(_p).addScaledVector(_d, -17)
+        .add(_v.set(Math.sin(t*0.6)*2.2, 5.5 + Math.sin(t*0.43)*1.6, 0));
+    if (state.introT < 2.6) {                     // scroll in from deep space
+      let k = state.introT / 2.6;
+      k = 1 - Math.pow(1 - k, 3);
+      _far.copy(_p).addScaledVector(_d, -420).add(_v.set(0, 120, 0));
+      _eye.lerpVectors(_far, _eye, k);
+    }
+    _dLook.set(_a.x, _a.y + 3, _a.z);
+  }
+  // critically-damped drift toward the desired pose: the camera has "mass",
+  // so path kinks, scrubs and the fly->loop handover all become glides
+  if (!camInit) { _sEye.copy(_eye); _sLook.copy(_dLook); _sUp.copy(_dUp); camInit = true; }
+  _sEye.lerp(_eye, 1 - Math.exp(-dt * (orbit.dragging ? 12.0 : 4.0)));
+  _sLook.lerp(_dLook, 1 - Math.exp(-dt * 6.0));
+  _sUp.lerp(_dUp, 1 - Math.exp(-dt * 3.0)).normalize();
+  camera.up.copy(_sUp);
+  camera.position.copy(_sEye);
+  camera.lookAt(_sLook);
+}
+
+// ------------------------------------------------------------- animate
+const clock = new THREE.Clock();
+let elapsed = 0;
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(0.05, clock.getDelta());
+  elapsed += dt;
+
+  if (state.mode === "fly") {
+    state.introT += dt;
+    if (!state.paused && state.introT > 2.6)
+      state.s += state.baseSpeed * state.speedMult * dt;
+    const end = state.seq.length - 1.001;
+    if (state.s >= end) { state.s = end; state.mode = "loop"; state.loopT = 0; }
+  } else if (state.mode === "loop") {
+    state.loopT += dt;
+  }
+
+  if (state.mode !== "idle") {
+    // particles
+    const attr = state.particlesObj.geometry.getAttribute("position");
+    state.particleList.forEach((pt, i) => {
+      const v = pt.main ? state.baseSpeed * 2.4 : pt.v;
+      pt.p = (pt.p + v * dt) % (pt.L - 1);
+      const j = Math.floor(pt.p), f = pt.p - j;
+      attr.array[i*3]   = pt.pts[j*3]   * (1-f) + pt.pts[(j+1)*3]   * f;
+      attr.array[i*3+1] = pt.pts[j*3+1] * (1-f) + pt.pts[(j+1)*3+1] * f;
+      attr.array[i*3+2] = pt.pts[j*3+2] * (1-f) + pt.pts[(j+1)*3+2] * f;
+    });
+    attr.needsUpdate = true;
+
+    // merge flares pulse
+    for (const c of state.companions) if (c.flare) {
+      const pulse = 0.6 + 0.4 * Math.sin(elapsed * 3.7 + c.mergeIdx);
+      c.flare.material.opacity = 0.11 * pulse;
+      c.flare.scale.setScalar(3 + 1.8 * pulse);
+    }
+    // 4-2-1 glows + comet forever circling
+    state.loopGlows.forEach((g, k) => {
+      const pulse = 0.55 + 0.45 * Math.sin(elapsed * 3 - k * 2.09);
+      g.material.opacity = 0.3 * pulse;
+      g.scale.setScalar(3.5 + 2.5 * pulse);
+    });
+    const lp = state.loopPts, cyc = (elapsed * 0.9) % 3;
+    const k = Math.floor(cyc), f = cyc - k, k2 = (k + 1) % 3;
+    state.comet.position.set(
+      lp[k*3]   * (1-f) + lp[k2*3]   * f,
+      lp[k*3+1] * (1-f) + lp[k2*3+1] * f,
+      lp[k*3+2] * (1-f) + lp[k2*3+2] * f);
+
+    // widen the stream fade-out when the overview pulls the camera far back
+    const fTarget = overviewActive()
+      ? Math.max(950, state.overview.dist * 1.5) : 950;
+    FADE.value += (fTarget - FADE.value) * (1 - Math.exp(-dt * 2));
+
+    placeCamera(elapsed, dt);
+    updateHud();
+
+    const showChart = overviewActive() && state.hud && !state.attract;
+    chartEl.classList.toggle("hidden", !showChart);
+    if (showChart && !state.chartDrawn) { drawChart(); state.chartDrawn = true; }
+  }
+
+  nebulaGroup.position.copy(camera.position);
+  nebulaGroup.rotation.y = elapsed * 0.004;
+  skyGroup.position.copy(camera.position);
+  galaxySpin.rotation.y = elapsed * 0.005;
+  renderer.domElement.style.cursor =
+    overviewActive() ? (orbit.dragging ? "grabbing" : "grab") : "";
+  starMat.uniforms.uCam.value.copy(camera.position);
+  starMat.uniforms.uTime.value = elapsed;
+
+  updateLabels();
+  composer.render();
+}
+
+// ------------------------------------------------------------- menu & input
+const menuEl = document.getElementById("menu");
+const inputRow = document.getElementById("inputrow");
+const numIn = document.getElementById("numin");
+const inErr = document.getElementById("inerr");
+
+function openMenu() {
+  menuEl.classList.remove("hidden");
+  inputRow.classList.add("hidden");
+  inErr.textContent = "";
+  if (state.mode !== "idle") { state.attract = true; hudEl.classList.add("hidden"); }
+}
+function launch(n) {
+  menuEl.classList.add("hidden");
+  startFlight(n, false);
+}
+function showInput() {
+  inputRow.classList.remove("hidden");
+  numIn.value = ""; inErr.textContent = "";
+  numIn.focus();
+}
+function submitInput() {
+  const n = MC.parseNumber(numIn.value);
+  if (n === null || n < 1n)
+    inErr.textContent = "couldn't parse that — try 27, 3e9 or 7*10^120";
+  else if (n.toString().length > 3000)
+    inErr.textContent = "let's stay under 10^3000, cosmic traveller";
+  else launch(n);
+}
+document.getElementById("opt-type").onclick = showInput;
+document.getElementById("opt-rand").onclick =
+  () => launch(MC.randBigInt(2 + Math.floor(Math.random() * 11)));
+document.getElementById("opt-huge").onclick =
+  () => launch(MC.randBigInt(50 + Math.floor(Math.random() * 251)));
+numIn.addEventListener("keydown", e => {
+  if (e.key === "Enter") submitInput();
+  if (e.key === "Escape") { inputRow.classList.add("hidden"); numIn.blur(); }
+  e.stopPropagation();
+});
+
+addEventListener("keydown", e => {
+  const menuOpen = !menuEl.classList.contains("hidden");
+  if (menuOpen) {
+    if (e.key === "1") showInput();
+    else if (e.key === "2") document.getElementById("opt-rand").onclick();
+    else if (e.key === "3") document.getElementById("opt-huge").onclick();
+    return;
+  }
+  switch (e.code) {
+    case "Space": state.paused = !state.paused; e.preventDefault(); break;
+    case "ArrowUp": state.speedMult = Math.min(24, state.speedMult * 1.5); break;
+    case "ArrowDown": state.speedMult = Math.max(0.1, state.speedMult / 1.5); break;
+    case "ArrowRight":
+      state.s = Math.min(state.seq.length - 1.001,
+                         state.s + state.seq.length * 0.02);
+      break;
+    case "ArrowLeft":
+      state.s = Math.max(0, state.s - state.seq.length * 0.02);
+      if (state.mode === "loop") { state.mode = "fly"; state.introT = 99; }
+      break;
+    case "Tab":
+      state.hud = !state.hud;
+      hudEl.classList.toggle("hidden", !state.hud || state.attract);
+      e.preventDefault();
+      break;
+    case "KeyV":
+      if (state.mode === "loop") state.ovToggle = !overviewActive();
+      break;
+    case "BracketLeft":
+      bloom.strength = Math.max(0, bloom.strength - 0.1); break;
+    case "BracketRight":
+      bloom.strength = Math.min(3, bloom.strength + 0.1); break;
+    case "KeyR": case "Escape": openMenu(); break;
+  }
+});
+addEventListener("wheel", e => {
+  if (!menuEl.classList.contains("hidden")) return;
+  if (overviewActive())              // overview: wheel = zoom, never speed
+    orbit.zoom = Math.min(5, Math.max(0.12,
+      orbit.zoom * (e.deltaY > 0 ? 1.12 : 1 / 1.12)));
+  else
+    state.speedMult = Math.min(24, Math.max(0.1,
+      state.speedMult * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+});
+
+// drag-to-rotate, overview only
+let dragPrev = null;
+renderer.domElement.addEventListener("pointerdown", e => {
+  if (!overviewActive()) return;
+  orbit.dragging = true;
+  dragPrev = [e.clientX, e.clientY];
+  orbit.lastT = elapsed;
+  renderer.domElement.setPointerCapture(e.pointerId);
+});
+addEventListener("pointermove", e => {
+  if (!orbit.dragging) return;
+  orbit.yaw -= (e.clientX - dragPrev[0]) * 0.005;
+  orbit.pitch = Math.min(1.15, Math.max(-1.15,
+    orbit.pitch + (e.clientY - dragPrev[1]) * 0.004));
+  dragPrev = [e.clientX, e.clientY];
+  orbit.lastT = elapsed;
+});
+addEventListener("pointerup", () => { orbit.dragging = false; });
+
+// attract mode: a quiet random voyage drifts behind the menu
+startFlight(MC.randBigInt(7), true);
+animate();
+</script>
+<script>
+setTimeout(() => {
+  if (!window.__appStarted) {
+    const e = document.getElementById("err");
+    e.textContent = "Couldn't load three.js from the CDN — this file needs an " +
+      "internet connection the first time. Check your connection and reload.";
+    e.style.display = "block";
+  }
+}, 5000);
+</script>
+</body>
+</html>
