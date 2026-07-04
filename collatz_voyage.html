@@ -42,7 +42,14 @@
   #menu-inner { text-align: center; max-width: 720px; width: 92%; }
   #menu h1 { color: #e1e6ff; font-size: clamp(22px, 4vw, 40px); letter-spacing: .18em;
              text-shadow: 0 0 34px rgba(110,130,255,.65); font-weight: bold; }
-  #menu .tagline { color: #8c91b4; margin: 14px 0 44px; }
+  #menu .tagline { color: #8c91b4; margin: 14px 0 26px; }
+  #rulerow { display: flex; gap: 10px; justify-content: center; margin: 0 0 30px; }
+  .chip { padding: 6px 18px; border: 1px solid #2a3054; border-radius: 999px;
+          color: #8c91b4; cursor: pointer; font-size: 15px;
+          background: rgba(16,19,40,.65); transition: all .15s; }
+  .chip:hover { border-color: #7e93ff; color: #dfe5ff; }
+  .chip.sel { border-color: #ffca70; color: #ffe1a0;
+              box-shadow: 0 0 14px rgba(255,190,90,.25); }
   .opt { color: #c8cdeb; font-size: clamp(15px, 2vw, 20px); text-align: left;
          padding: 13px 22px; margin: 10px auto; width: 100%; max-width: 560px;
          border: 1px solid #2a3054; border-radius: 10px; cursor: pointer;
@@ -57,6 +64,16 @@
            border-radius: 10px; outline: none; box-shadow: 0 0 18px rgba(110,130,255,.3); }
   #inerr { color: #ff8a8a; font-size: 13px; margin-top: 8px; min-height: 1.2em;
            text-align: left; }
+  #famelist { max-height: 296px; overflow-y: auto; margin: 16px auto 0;
+              max-width: 560px; text-align: left; }
+  #famelist.hidden { display: none; }
+  .fame { display: flex; justify-content: space-between; align-items: baseline;
+          gap: 14px; padding: 9px 14px; border: 1px solid #232849;
+          border-radius: 8px; margin-bottom: 6px; cursor: pointer;
+          background: rgba(14,17,36,.6); transition: all .12s; }
+  .fame:hover { border-color: #7e93ff; box-shadow: 0 0 12px rgba(110,130,255,.2); }
+  .fame b { color: #dfe5ff; white-space: nowrap; font-size: 15px; }
+  .fame span { color: #767c9f; font-size: 12.5px; text-align: right; }
   #menuhint { color: #565b7c; font-size: 12px; margin-top: 40px; line-height: 1.8; }
 
   #err { position: fixed; top: 0; width: 100%; z-index: 99; background: #5b1620;
@@ -73,6 +90,26 @@
                 margin-bottom: 7px; }
   #chart-head .dim { color: #6b7099; letter-spacing: .05em; }
   #chartcv { width: 520px; height: 260px; display: block; cursor: crosshair; }
+
+  #pickbox { position: fixed; left: 50%; transform: translateX(-50%);
+             bottom: 170px; z-index: 8; text-align: center;
+             background: rgba(9,12,26,.55); backdrop-filter: blur(7px);
+             border: 1px solid rgba(255,202,112,.5); border-radius: 10px;
+             padding: 14px 24px; }
+  #pickbox.hidden { display: none; }
+  #pick-title { color: #ffe1a0; font-size: 22px; font-weight: bold; }
+  #pick-sub { color: #9aa2c8; font-size: 13px; margin: 6px 0 12px; }
+  .pickbtn { color: #c8cdeb; border: 1px solid #2a3054; border-radius: 8px;
+             padding: 5px 14px; margin: 0 6px; cursor: pointer; font-size: 14px;
+             background: rgba(16,19,40,.65); transition: all .12s; }
+  .pickbtn:hover { border-color: #7e93ff; color: #fff; }
+
+  #toast { position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
+           background: rgba(20,26,50,.88); color: #cfd7ff; padding: 8px 18px;
+           border: 1px solid #39406e; border-radius: 8px; font-size: 13px;
+           z-index: 30; opacity: 0; transition: opacity .25s;
+           pointer-events: none; }
+  #toast.show { opacity: 1; }
 </style>
 <script type="importmap">
 { "imports": {
@@ -83,22 +120,27 @@
 </head>
 <body>
 <div id="err"></div>
+<div id="toast"></div>
 <div id="labels"></div>
 
 <div id="hud" class="hidden">
   <div id="readout">
+    <div>rule&nbsp;&nbsp; <span id="ro-rule"></span></div>
     <div>value&nbsp; <span class="v" id="ro-value"></span></div>
     <div>step&nbsp;&nbsp; <span id="ro-step"></span></div>
+    <div>parity <span id="ro-parity"></span></div>
+    <div>streak <span id="ro-streak"></span></div>
+    <div>expect <span id="ro-expect"></span></div>
     <div>speed&nbsp; <span id="ro-speed"></span></div>
     <div>bloom&nbsp; <span id="ro-bloom"></span></div>
   </div>
   <div id="loopbanner">
-    <div class="big">4 → 2 → 1 → 4 → …</div>
-    <div class="sub">trapped in the 4-2-1 loop, like every number ever tested</div>
+    <div class="big" id="loop-big"></div>
+    <div class="sub" id="loop-sub"></div>
   </div>
   <div id="hint">SPACE pause &nbsp;·&nbsp; ↑/↓ or wheel speed &nbsp;·&nbsp; ←/→ scrub
     &nbsp;·&nbsp; V overview (drag rotate, wheel zoom) &nbsp;·&nbsp; TAB hud
-    &nbsp;·&nbsp; R menu</div>
+    &nbsp;·&nbsp; P screenshot &nbsp;·&nbsp; R menu</div>
   <div id="bar"><div id="barfill"></div></div>
 </div>
 
@@ -107,19 +149,37 @@
   <canvas id="chartcv"></canvas>
 </div>
 
+<div id="pickbox" class="hidden">
+  <div id="pick-title"></div>
+  <div id="pick-sub"></div>
+  <div>
+    <span class="pickbtn" id="pick-yes">[Y] fly it</span>
+    <span class="pickbtn" id="pick-no">[N] stay</span>
+  </div>
+</div>
+
 <div id="menu">
   <div id="menu-inner">
     <h1>C O L L A T Z&nbsp;&nbsp;V O Y A G E</h1>
     <div class="tagline">every number falls. watch yours.</div>
-    <div class="opt" id="opt-type">[1]&nbsp; type a number <span>plain · 3e9 · 7*10^120</span></div>
+    <div id="rulerow">
+      <span class="chip sel" data-rule="3n+1">3n+1</span>
+      <span class="chip" data-rule="3n-1">3n−1</span>
+      <span class="chip" data-rule="5n+1">5n+1</span>
+      <span class="chip" data-rule="5n-1">5n−1</span>
+    </div>
+    <div class="opt" id="opt-type">[1]&nbsp; type a number <span>27 · -7 · 3e9 · 2^5000-1</span></div>
     <div class="opt" id="opt-rand">[2]&nbsp; random number <span>up to 12 digits</span></div>
     <div class="opt" id="opt-huge">[3]&nbsp; colossal random <span>10^50 … 10^300</span></div>
+    <div class="opt" id="opt-neg">[4]&nbsp; random negative <span>meet the other loops</span></div>
+    <div class="opt" id="opt-fame">[5]&nbsp; hall of fame <span>famous trajectories of this rule</span></div>
     <div id="inputrow" class="hidden">
       <input id="numin" autocomplete="off" spellcheck="false"
-             placeholder="27, 3e9, 7*10^120, 10^100 …">
+             placeholder="27, -7, 3e9, 2^5000-1 …">
       <div id="inerr"></div>
     </div>
-    <div id="menuhint">1 / 2 / 3 select · ENTER confirm · ESC back<br>
+    <div id="famelist" class="hidden"></div>
+    <div id="menuhint">1 – 5 select · ENTER confirm · ESC back<br>
       even step bends the stream +7.5°, odd −14.5° — that curl is the mathematics</div>
   </div>
 </div>
@@ -133,31 +193,101 @@ const MC = (() => {
   const D = Math.PI / 180;
   const YAW_EVEN = 7.5 * D, YAW_ODD = -14.5 * D;
   const ALT_PER_DECADE = 16.0;  // world units of height per factor 10 in value
+  // escape tripwire is per rule: 3n±1 empirically always cycles, so its limit
+  // sits far above any allowed input (max climb of a 3000-digit number is
+  // ~15,800 bits); 5n±1 genuinely diverges, so it trips early by design
+  const RULES = {
+    "3n+1": { a: 3n, b: 1n, escape: 20000 },
+    "3n-1": { a: 3n, b: -1n, escape: 20000 },
+    "5n+1": { a: 5n, b: 1n, escape: 4000 },
+    "5n-1": { a: 5n, b: -1n, escape: 4000 },
+  };
+  const babs = v => v < 0n ? -v : v;
 
-  // sequence from n down to 1 + EXACT per-step bit lengths (halving is exactly
-  // -1 bit; 3n+1 is +1 or +2, decided by one comparison). Exactness matters:
-  // height derives from bits, and merging streams must agree on heights.
-  function collatz(n) {
-    const seq = [n];
-    let bits = n.toString(2).length;
-    const bitArr = [bits];
-    while (n !== 1n && seq.length < MAX_STEPS) {
-      if (n % 2n === 0n) { n = n / 2n; bits -= 1; }
+  // iterate n under (odd: a·n+b, even: n/2) until the orbit revisits a value
+  // (cycle found), escapes past ESCAPE_BITS, or hits MAX_STEPS. |bit| lengths
+  // are tracked exactly (halving is exactly -1; odd steps are checked with
+  // shifts). The seq is truncated at the first visit of the cycle's ANCHOR
+  // (its member of smallest |value|), so any two streams sharing a suffix
+  // also share their endpoint — and therefore their geometry.
+  // stopSet (optional): halt as soon as a value in it is reached ("merged") —
+  // lets companion streams skip computing the shared tail entirely
+  function collatz(n, rule, stopSet) {
+    rule = rule || RULES["3n+1"];
+    let seq = [n];
+    let bits = babs(n).toString(2).length;
+    let bitArr = [bits];
+    if (stopSet && stopSet.has(n))
+      return { seq, bits: bitArr, cycle: null, anchor: null,
+               escaped: false, merged: true };
+    const seen = new Map([[n, 0]]);
+    let v = n, cycle = null, escaped = false;
+    while (seq.length < MAX_STEPS) {
+      if (v % 2n === 0n) { v = v / 2n; bits -= 1; }
       else {
-        const lim = 1n << BigInt(bits + 1);
-        n = 3n * n + 1n;
-        bits += n >= lim ? 2 : 1;
+        v = rule.a * v + rule.b;
+        bits += 1;
+        const m = babs(v);
+        while (m >= 1n << BigInt(bits)) bits += 1;
       }
-      seq.push(n);
-      bitArr.push(bits);
+      if (stopSet && stopSet.has(v)) {
+        seq.push(v); bitArr.push(bits);
+        return { seq, bits: bitArr, cycle: null, anchor: null,
+                 escaped: false, merged: true };
+      }
+      const hit = seen.get(v);
+      if (hit !== undefined) { cycle = seq.slice(hit); break; }
+      seq.push(v); bitArr.push(bits);
+      seen.set(v, seq.length - 1);
+      if (bits > rule.escape) { escaped = true; break; }
     }
-    return { seq, bits: bitArr };
+    let anchor;
+    if (cycle) {
+      anchor = cycle[0];
+      for (const c of cycle) if (babs(c) < babs(anchor)) anchor = c;
+      const ai = seq.indexOf(anchor);
+      if (ai === 0) {              // started on the anchor: ride the cycle once
+        seq = seq.slice(1, cycle.length).concat([anchor]);
+        bitArr = bitArr.slice(1, cycle.length).concat([bitArr[0]]);
+      } else {
+        seq = seq.slice(0, ai + 1);
+        bitArr = bitArr.slice(0, ai + 1);
+      }
+    } else {
+      anchor = seq[seq.length - 1]; // escaper (or gave up): anchor = endpoint
+    }
+    return { seq, bits: bitArr, cycle, anchor, escaped, merged: false };
   }
 
-  // '123' | '1,234' | '3e9' | '2.5*10^6' | '10^100'  ->  BigInt | null
+  // the cycle rotated so the anchor comes last, e.g. [4, 2, 1]
+  function cycleMarkerSeq(cycle, anchor) {
+    const m = cycle.indexOf(anchor);
+    const rot = cycle.slice(m + 1).concat(cycle.slice(0, m + 1));
+    return { seq: rot, bits: rot.map(v => babs(v).toString(2).length) };
+  }
+
+  // deterministic world placement per attractor; the 1-anchored loop is home
+  function anchorTransform(anchor) {
+    const s = anchor.toString();
+    if (s === "1") return { x: 0, z: 0, ang: 0 };
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+    const theta = (h % 3600) / 3600 * Math.PI * 2;
+    const R = 1600 + (h % 7) * 350;
+    return { x: Math.sin(theta) * R, z: Math.cos(theta) * R,
+             ang: ((h >>> 12) % 3600) / 3600 * Math.PI * 2 };
+  }
+
+  // '123' | '-27' | '1,234' | '3e9' | '2.5*10^6' | '10^100' | '2^5000-1'
   function parseNumber(text) {
-    const t = text.trim().toLowerCase().replace(/[, ]/g, "");
+    let t = text.trim().toLowerCase().replace(/[, ]/g, "").replace(/−/g, "-");
+    let sign = 1n;
+    if (t.startsWith("-")) { sign = -1n; t = t.slice(1); }
     if (!t) return null;
+    const v = parseUnsigned(t);
+    return v === null ? null : sign * v;
+  }
+  function parseUnsigned(t) {
     try {
       const mantExp = (m, e) => {
         const exp = parseInt(e, 10);
@@ -170,6 +300,15 @@ const MC = (() => {
       };
       if (t.includes("*10^")) { const [m, e] = t.split("*10^"); return mantExp(m, e); }
       if (t.startsWith("10^")) return mantExp("1", t.slice(3));
+      const pow = t.match(/^(\d+)\^(\d+)([+-]\d+)?$/); // base^exp±c, e.g. 2^5000-1
+      if (pow) {
+        const exp = parseInt(pow[2], 10);
+        if (pow[1] === "0" || pow[1] === "1") return BigInt(pow[1]);
+        if (exp * Math.log10(Number(pow[1])) > 3100) return null;  // keep it sane
+        const off = pow[3] ? BigInt(pow[3].replace("+", "")) : 0n;
+        const v = BigInt(pow[1]) ** BigInt(exp) + off;
+        return v >= 1n ? v : null;
+      }
       if (t.includes("e")) { const [m, e] = t.split("e"); return mantExp(m, e); }
       if (!/^\d+$/.test(t)) return null;
       return BigInt(t);
@@ -177,11 +316,13 @@ const MC = (() => {
   }
 
   function sci(n) {
+    if (n < 0n) return "−" + sci(-n);
     const s = n.toString();
     if (s.length <= 12) return n.toLocaleString("en-US");
     return `${s[0]}.${s.slice(1, 4)}×10^${s.length - 1}`;
   }
   function labelText(n) {
+    if (n < 0n) return "−" + labelText(-n);
     const s = n.toString();
     if (s.length <= 8) return n.toLocaleString("en-US");
     return `${s[0]}.${s.slice(1, 3)}e${s.length - 1}`;
@@ -194,14 +335,38 @@ const MC = (() => {
   // function of the value, so shared suffixes get IDENTICAL coordinates —
   // that is how streams visually merge.
   const LOG10_2 = Math.log10(2);
-  function buildPositions(seq, bits) {
+  function buildPositions(seq, bits, tf, outAng) {
+    tf = tf || { x: 0, z: 0, ang: 0 };
     const L = seq.length;
     const pts = new Float64Array(L * 3);
-    const alt = i => (bits[i] - 1) * LOG10_2 * ALT_PER_DECADE;
-    let ang = 0, x = 0, z = 0;
-    pts[(L - 1) * 3 + 1] = alt(L - 1);
-    for (let i = L - 2; i >= 0; i--) {           // walk 1 -> ... -> seq[0]
+    // SIGNED altitude: the negative universe hangs below the zero plane
+    const alt = i => (seq[i] < 0n ? -1 : 1) * (bits[i] - 1) * LOG10_2 * ALT_PER_DECADE;
+    let ang = tf.ang, x = tf.x, z = tf.z;
+    if (outAng) outAng[L - 1] = ang;
+    pts[(L-1)*3] = x; pts[(L-1)*3+1] = alt(L - 1); pts[(L-1)*3+2] = z;
+    for (let i = L - 2; i >= 0; i--) {           // walk anchor -> ... -> seq[0]
       ang += seq[i] % 2n === 0n ? YAW_EVEN : YAW_ODD;  // parity upstream
+      if (outAng) outAng[i] = ang;
+      x += Math.sin(ang) * STEP_LEN;
+      z += Math.cos(ang) * STEP_LEN;
+      pts[i*3] = x; pts[i*3+1] = alt(i); pts[i*3+2] = z;
+    }
+    return pts;
+  }
+
+  // positions for a stream whose LAST value sits at main-path index j:
+  // continue the main walk's exact state backwards through the prefix,
+  // giving coordinates identical to a full anchor-walk at a fraction of
+  // the cost (no shared-tail computation needed)
+  function attachPositions(seq, bits, mainPts, mainAngs, j) {
+    const L = seq.length;
+    const pts = new Float64Array(L * 3);
+    const alt = i => (seq[i] < 0n ? -1 : 1) * (bits[i] - 1) * LOG10_2 * ALT_PER_DECADE;
+    let ang = mainAngs[j];
+    let x = mainPts[j*3], z = mainPts[j*3+2];
+    pts[(L-1)*3] = x; pts[(L-1)*3+1] = alt(L - 1); pts[(L-1)*3+2] = z;
+    for (let i = L - 2; i >= 0; i--) {
+      ang += seq[i] % 2n === 0n ? YAW_EVEN : YAW_ODD;
       x += Math.sin(ang) * STEP_LEN;
       z += Math.cos(ang) * STEP_LEN;
       pts[i*3] = x; pts[i*3+1] = alt(i); pts[i*3+2] = z;
@@ -224,25 +389,61 @@ const MC = (() => {
     ok(parseNumber("7*10^120") === 7n * 10n ** 120n, "parse 7*10^120");
     ok(parseNumber("2.5*10^6") === 2500000n, "parse 2.5*10^6");
     ok(parseNumber("10^100") === 10n ** 100n, "parse 10^100");
+    ok(parseNumber("2^166") === 2n ** 166n, "parse 2^166");
+    ok(parseNumber("2^5000-1") === 2n ** 5000n - 1n, "parse 2^5000-1");
+    ok(parseNumber("2^10+1") === 1025n, "parse 2^10+1");
     ok(parseNumber("banana") === null, "reject banana");
+    ok(parseNumber("-27") === -27n, "parse -27");
     const A = collatz(27n), B = collatz(31n);
     const a = A.seq, b = B.seq;
     ok(a.length === 112, "collatz(27) has 112 values");
+    ok(A.cycle && A.cycle.length === 3 && A.anchor === 1n, "27 lands in 4-2-1");
     ok(a.every((v, k) => A.bits[k] === v.toString(2).length),
        "incremental bit lengths are exact");
+    const N7 = collatz(-7n, RULES["3n+1"]);
+    ok(N7.cycle && N7.cycle.length === 5 && N7.anchor === -5n,
+       "-7 falls into the -5 loop");
+    ok(N7.seq.every((v, k) => N7.bits[k] === babs(v).toString(2).length),
+       "negative bit lengths are exact");
+    const N17 = collatz(-17n, RULES["3n+1"]);
+    ok(N17.cycle && N17.cycle.length === 18 && N17.anchor === -17n,
+       "-17 rides the 18-step loop");
+    const F5 = collatz(1n, RULES["5n+1"]);
+    ok(F5.cycle && F5.cycle.length === 7, "5n+1: 1 sits in a 7-step loop");
+    ok(F5.seq.every((v, k) => F5.bits[k] === babs(v).toString(2).length),
+       "5n+1 bit lengths are exact");
+    const T3 = collatz(3n, RULES["3n-1"]);
+    ok(T3.anchor === 1n && T3.cycle.length === 2 && T3.seq.length === 5,
+       "3n-1: 3 -> 8 -> 4 -> 2 -> 1, loop 1 -> 2");
+    const BIG = collatz(1n << 4200n, RULES["3n+1"]);   // 4200-bit power of two
+    ok(!BIG.escaped && BIG.anchor === 1n && BIG.seq.length === 4201,
+       "large 3n+1 inputs don't fake-escape");
     const setB = new Set(b);
     const i = a.findIndex(v => setB.has(v));
     const j = b.indexOf(a[i]);
-    const pa = buildPositions(a, A.bits), pb = buildPositions(b, B.bits);
+    const tf = anchorTransform(1n);
+    const pa = buildPositions(a, A.bits, tf), pb = buildPositions(b, B.bits, tf);
     let merged = i >= 0;
     for (let k = 0; merged && k < (a.length - i) * 3; k++)
       if (Math.abs(pa[(i * 3) + k] - pb[(j * 3) + k]) > 1e-9) merged = false;
     ok(merged, "shared suffixes get identical coordinates");
+    const ST = collatz(6n, RULES["3n+1"], new Set([3n]));
+    ok(ST.merged && ST.seq.length === 2, "stopSet halts at the merge");
+    // the attach-walk fast path must match the full anchor-walk exactly
+    const angs = new Float64Array(a.length);
+    buildPositions(a, A.bits, tf, angs);
+    const pAtt = attachPositions(b.slice(0, j + 1), B.bits.slice(0, j + 1),
+                                 pa, angs, i);
+    let same = true;
+    for (let k = 0; k < pAtt.length; k++)
+      if (Math.abs(pAtt[k] - pb[k]) > 1e-9) same = false;
+    ok(same, "attached companion geometry matches the full walk");
     return fails;
   }
 
-  return { MAX_STEPS, STEP_LEN, collatz, parseNumber, sci, labelText,
-           buildPositions, randBigInt, selfTest };
+  return { MAX_STEPS, STEP_LEN, RULES, collatz, parseNumber, sci, labelText,
+           buildPositions, attachPositions, anchorTransform, cycleMarkerSeq,
+           randBigInt, selfTest };
 })();
 </script>
 
@@ -453,6 +654,76 @@ const galaxySpin = new THREE.Group();
     skyGroup.add(spr);
   });
 
+// a modest cousin of TON 618: true-black event horizon (occludes the stars
+// behind it), billboarded photon ring, tilted clumpy accretion disk
+let bhDisk = null;
+{
+  const bh = new THREE.Group();
+  bh.add(new THREE.Mesh(new THREE.SphereGeometry(15, 32, 16),
+    new THREE.MeshBasicMaterial({ color: 0x000000 })));
+
+  const cv = document.createElement("canvas");
+  cv.width = cv.height = 512;
+  const dctx = cv.getContext("2d");
+  for (let i = 0; i < 2800; i++) {          // clumpy dust so the spin shows
+    const r = 64 + Math.pow(Math.random(), 1.6) * 180;
+    const a = Math.random() * Math.PI * 2;
+    const heat = Math.max(0, 1.2 - r / 210);
+    const clump = 0.7 + 0.3 * Math.sin(a * 3 + r * 0.13);
+    dctx.fillStyle = `rgba(255,${180 + Math.floor(60 * heat)},` +
+      `${90 + Math.floor(80 * heat)},${(0.05 + 0.30 * heat) * clump})`;
+    const s = 1 + Math.random() * 2.6;
+    dctx.fillRect(256 + Math.cos(a) * r - s / 2,
+                  256 + Math.sin(a) * r - s / 2, s, s);
+  }
+  dctx.strokeStyle = "rgba(255,236,214,.8)";  // white-hot inner edge
+  dctx.lineWidth = 5;
+  dctx.beginPath(); dctx.arc(256, 256, 64, 0, 7); dctx.stroke();
+  bhDisk = new THREE.Mesh(new THREE.PlaneGeometry(215, 215),
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv),
+      transparent: true, blending: THREE.AdditiveBlending,
+      depthWrite: false, side: THREE.DoubleSide }));
+  bhDisk.rotation.x = 1.30;
+  bh.add(bhDisk);
+
+  // gravitationally lensed halo — the signature ring standing around the
+  // horizon (light from the disk's far side bent over the poles), brightest
+  // above and below, plus a thin crisp photon ring hugging the edge
+  const pr = document.createElement("canvas");
+  pr.width = pr.height = 256;
+  const pctx = pr.getContext("2d");
+  const img = pctx.createImageData(256, 256);
+  for (let py = 0; py < 256; py++) {
+    for (let px = 0; px < 256; px++) {
+      const dx = (px - 128) / 128, dy = (py - 128) / 128;
+      const r = Math.hypot(dx, dy);
+      if (r < 0.47 || r > 1) continue;         // horizon stays pitch black
+      const vert = Math.abs(dy) / r;           // 1 at the poles of the ring
+      const ringI = Math.exp(-((r - 0.505) ** 2) / (2 * 0.012 ** 2));
+      const halo = r > 0.5
+        ? Math.exp(-(r - 0.5) / 0.16) * (0.30 + 0.20 * vert ** 1.6) : 0;
+      const I = Math.min(1, ringI * 0.95 + halo * 0.85);
+      if (I < 0.01) continue;
+      const t = Math.min(1, (r - 0.5) / 0.4);  // white-hot fading to orange
+      const o = (py * 256 + px) * 4;
+      img.data[o]     = 255;
+      img.data[o + 1] = Math.round(246 - 96 * t);
+      img.data[o + 2] = Math.round(228 - 168 * t);
+      img.data[o + 3] = Math.round(255 * I);
+    }
+  }
+  pctx.putImageData(img, 0, 0);
+  const photon = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: new THREE.CanvasTexture(pr), transparent: true,
+    blending: THREE.AdditiveBlending, depthTest: false, opacity: 0.95 }));
+  photon.scale.setScalar(64);
+  bh.add(photon);
+
+  bh.scale.setScalar(2.4);
+  bh.position.set(-5.52, 10.13, 0.84).normalize().multiplyScalar(1600); //-0.52, 0.13, 0.84)
+  skyGroup.add(bh);
+}
+
 // ------------------------------------------------------------- stream shaders
 // distance at which streams fade out — shared by every stream material and
 // ramped up when the camera pulls out to the whole-corkscrew overview
@@ -470,7 +741,8 @@ const streamVert = /* glsl */`
   }`;
 const lineMat = opacity => new THREE.ShaderMaterial({
   uniforms: { uOp: { value: opacity }, uFadeD: FADE },
-  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  transparent: true, depthWrite: false, depthTest: false,
+  blending: THREE.AdditiveBlending,
   vertexShader: streamVert,
   fragmentShader: /* glsl */`
     uniform float uOp; varying vec3 vC; varying float vFade;
@@ -478,7 +750,8 @@ const lineMat = opacity => new THREE.ShaderMaterial({
 });
 const pointMat = (size, opacity) => new THREE.ShaderMaterial({
   uniforms: { uOp: { value: opacity }, uSize: { value: size }, uFadeD: FADE },
-  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  transparent: true, depthWrite: false, depthTest: false,
+  blending: THREE.AdditiveBlending,
   vertexShader: /* glsl */`
     uniform float uSize; uniform float uFadeD;
     attribute vec3 aColor;
@@ -500,24 +773,25 @@ const pointMat = (size, opacity) => new THREE.ShaderMaterial({
     }`,
 });
 
-// big values violet-blue, small warm gold (same formula as the python build)
-function valueHue(bits, startBits) {
-  const t = Math.min(1, bits / startBits);
-  return 0.72 * t + 0.10 * (1 - t);
-}
+// positive universe: violet-blue (big) fading to warm gold (small);
+// negative universe: green fading to teal, so below-the-plane reads instantly
 const _c = new THREE.Color();
-function streamColors(bits, startBits, sat, light) {
+function streamColors(seq, bits, startBits, sat, light) {
   const cols = new Float32Array(bits.length * 3);
   for (let i = 0; i < bits.length; i++) {
-    _c.setHSL(valueHue(bits[i], startBits), sat, light);
+    const t = Math.min(1, bits[i] / startBits);
+    const hue = seq[i] < 0n ? 0.34 + 0.16 * t
+                            : 0.72 * t + 0.10 * (1 - t);
+    _c.setHSL(hue, sat, light);
     cols[i*3] = _c.r; cols[i*3+1] = _c.g; cols[i*3+2] = _c.b;
   }
   return cols;
 }
 
-function makeStreamObjects(pts64, bits, startBits, main, fadeFrom = -1) {
+function makeStreamObjects(pts64, seq, bits, startBits, main, fadeFrom = -1) {
   const pos = new Float32Array(pts64);
-  const cols = streamColors(bits, startBits, main ? 0.7 : 0.55, main ? 0.55 : 0.42);
+  const cols = streamColors(seq, bits, startBits,
+                            main ? 0.7 : 0.55, main ? 0.55 : 0.42);
   if (fadeFrom >= 0) {   // dissolve past the merge — the main stream carries on alone
     const span = Math.max(1, bits.length - fadeFrom);
     for (let i = fadeFrom; i < bits.length; i++) {
@@ -537,6 +811,8 @@ function makeStreamObjects(pts64, bits, startBits, main, fadeFrom = -1) {
 // ------------------------------------------------------------- flight state
 const state = {
   mode: "idle",              // idle | fly | loop
+  ruleName: "3n+1",
+  pendingPick: null,
   attract: false,
   seq: null, bits: null, pts: null,
   companions: [],            // { seq, pts, mergeIdx, mergePos, flare, particles }
@@ -580,16 +856,70 @@ function disposeFlight() {
   }
   state.group = null;
   state.companions = [];
+  state.pendingPick = null;
+  document.getElementById("pickbox").classList.add("hidden");
 }
 
 function startFlight(n, attract = false) {
   disposeFlight();
-  if (n < 1n) n = 1n;
-  const { seq, bits } = n > 1n ? MC.collatz(n) : MC.collatz(4n);
+  if (n === 0n) n = 27n;
+  const rule = MC.RULES[state.ruleName];
+  const { seq, bits, cycle, anchor, escaped } = MC.collatz(n, rule);
   const startBits = Math.max(3, bits[0]);
   state.seq = seq; state.bits = bits;
-  state.pts = MC.buildPositions(seq, bits);
-  state.loopPts = MC.buildPositions([4n, 2n, 1n], [3, 2, 1]); // matches every tail
+  state.cycle = cycle; state.anchor = anchor; state.escaped = escaped;
+  const mainTf = MC.anchorTransform(anchor);
+  const mainAngs = new Float64Array(seq.length);
+  state.pts = MC.buildPositions(seq, bits, mainTf, mainAngs);
+  labelCache.clear();
+
+  // telemetry: cumulative odd-step counts + parity streaks per node, and the
+  // statistical expectation ~2/ln(4/3)·ln n ≈ 6.95·ln n (3n±1 rules only —
+  // 5n±1 has no finite expectation, it usually never comes home)
+  {
+    const L = seq.length;
+    const oddCum = new Int32Array(L), streaks = new Int32Array(L);
+    let oc = 0, run = 0, prevOdd = null;
+    for (let i = 0; i < L; i++) {
+      const odd = seq[i] % 2n !== 0n;
+      if (odd) oc++;
+      oddCum[i] = oc;
+      run = prevOdd === odd ? run + 1 : 1;
+      prevOdd = odd;
+      streaks[i] = run;
+    }
+    state.oddCum = oddCum; state.streaks = streaks;
+    state.expect = state.ruleName.startsWith("3")
+      ? Math.round(6.95 * bits[0] * Math.LN2) : null;
+  }
+  state.markerSeq = null; state.loopPts = null;
+  if (cycle) {
+    const mk = MC.cycleMarkerSeq(cycle, anchor);
+    state.markerSeq = mk.seq;
+    state.loopPts = MC.buildPositions(mk.seq, mk.bits, mainTf);
+  }
+  const classic = cycle && anchor === 1n && cycle.length === 3;
+  state.cycleText = escaped ? "→ ∞"
+    : classic ? "4 → 2 → 1 → 4 → …"
+    : `${MC.labelText(anchor)} loop · ${cycle.length} steps`;
+  state.cycleShort = escaped ? "→ ∞" : classic ? "4·2·1"
+    : `${MC.labelText(anchor)} loop`;
+  // framing for the finale close-orbit: centroid + radius of the cycle marker
+  if (state.loopPts) {
+    const lp = state.loopPts, K = state.markerSeq.length;
+    const c = new THREE.Vector3();
+    for (let k = 0; k < K; k++) c.add(_v.set(lp[k*3], lp[k*3+1], lp[k*3+2]));
+    c.multiplyScalar(1 / K);
+    let r = 0;
+    for (let k = 0; k < K; k++)
+      r = Math.max(r, c.distanceTo(_v.set(lp[k*3], lp[k*3+1], lp[k*3+2])));
+    state.loopCenter = c; state.loopR = Math.max(12, r);
+  } else {
+    const e = seq.length - 1;   // escaper: orbit the point where it left us
+    state.loopCenter = new THREE.Vector3(
+      state.pts[e*3], state.pts[e*3+1], state.pts[e*3+2]);
+    state.loopR = 30;
+  }
   state.attract = attract;
 
   // framing for the finale overview: whole corkscrew in side profile,
@@ -605,7 +935,8 @@ function startFlight(n, attract = false) {
     const center = new THREE.Vector3((mnx+mxx)/2, (mny+mxy)/2, (mnz+mxz)/2);
     const radius = Math.max(30,
       Math.sqrt((mxx-mnx)**2 + (mxy-mny)**2 + (mxz-mnz)**2) / 2);
-    const axis = new THREE.Vector3(p[0], p[1], p[2]);   // start -> 1 (origin)
+    const e3 = p.length - 3;                            // start -> anchor chord
+    const axis = new THREE.Vector3(p[0] - p[e3], p[1] - p[e3+1], p[2] - p[e3+2]);
     if (axis.lengthSq() < 1) axis.set(0, 1, 0); else axis.normalize();
     const side = new THREE.Vector3().crossVectors(axis, new THREE.Vector3(0, 1, 0));
     if (side.lengthSq() < 0.05)
@@ -615,48 +946,75 @@ function startFlight(n, attract = false) {
     const dist = Math.max(120,
       radius / Math.min(tanY, tanY * camera.aspect) * 1.15);
     state.overview = { center, axis, side, dist };
-    camera.far = Math.max(7000, dist * 2.5);
+    // far plane must cover the deepest case: fully zoomed out (5x) with the
+    // structure's whole span beyond the pivot
+    camera.far = Math.max(7000, dist * 8);
     camera.updateProjectionMatrix();
   }
 
   const group = new THREE.Group();
   state.group = group;
 
-  const mainObj = makeStreamObjects(state.pts, bits, startBits, true);
+  const mainObj = makeStreamObjects(state.pts, seq, bits, startBits, true);
   group.add(mainObj.line, mainObj.points);
 
-  // companions: neighbours of n merge fast (visible collisions) + random sizes
+  // companions: neighbours of n merge fast (visible collisions) + random
+  // sizes; same sign as n, so they populate the same half of the universe.
+  // merging companions stop computing at the collision (their tail IS the
+  // main path); random scenery companions are capped in size — both keep
+  // colossal launches from drowning the GC and stuttering the first seconds
   const seeds = new Set();
-  const digits = Math.max(2, n.toString().length);
+  const sgn = n < 0n ? -1n : 1n;
+  const digits = Math.max(2, (n < 0n ? -n : n).toString().length);
+  const nComp = seq.length > 30000 ? 8 : N_COMPANIONS;
   const near = [-3, -2, -1, 1, 2, 3, 5, 8, 13, -8];
-  for (let k = 0; k < N_COMPANIONS / 2; k++) {
+  for (let k = 0; k < nComp / 2; k++) {
     const off = BigInt(near[Math.floor(Math.random() * near.length)])
               * BigInt(1 + Math.floor(Math.random() * 4));
     const s = n + off;
-    if (s >= 3n && s !== n) seeds.add(s);
+    if ((s < 0n ? -s : s) >= 3n && s !== n) seeds.add(s);
   }
-  while (seeds.size < N_COMPANIONS)
-    seeds.add(MC.randBigInt(2 + Math.floor(Math.random() * Math.max(2, digits - 1))));
-  const mainSet = new Set(seq);
+  const randDigits = Math.max(2, Math.min(digits, 60) - 1);
+  while (seeds.size < nComp)
+    seeds.add(sgn * MC.randBigInt(2 + Math.floor(Math.random() * randDigits)));
+  const mainIdx = new Map();
+  seq.forEach((v, i) => mainIdx.set(v, i));
+  const otherCycles = new Map();     // rival attractors the companions found
   for (const seed of seeds) {
     if (seed === n) continue;
-    const c = MC.collatz(seed);
-    const cPtsFull = MC.buildPositions(c.seq, c.bits);
-    let mergeIdx = -1;
-    for (let i = 0; i < c.seq.length; i++)
-      if (mainSet.has(c.seq[i])) { mergeIdx = i; break; }
-    // draw only up to shortly after the collision — beyond it the companion
-    // is coordinate-identical to the main stream and would stack additively
-    const keep = mergeIdx >= 0
-      ? Math.min(c.seq.length, mergeIdx + 8) : c.seq.length;
-    const cPts = cPtsFull.slice(0, keep * 3);
-    const obj = makeStreamObjects(cPts, c.bits.slice(0, keep), startBits,
+    const c = MC.collatz(seed, rule, mainIdx);
+    if (c.cycle && c.anchor !== anchor && !otherCycles.has(c.anchor.toString()))
+      otherCycles.set(c.anchor.toString(), { cycle: c.cycle, anchor: c.anchor });
+    // display seq: up to the merge + a few shared nodes that fade out —
+    // beyond that the companion is coordinate-identical to the main stream
+    let dispSeq, dispBits, cPts, mergeIdx;
+    if (c.merged) {
+      mergeIdx = c.seq.length - 1;
+      const j = mainIdx.get(c.seq[mergeIdx]);
+      const extra = Math.min(8, seq.length - 1 - j);
+      dispSeq = c.seq.concat(seq.slice(j + 1, j + 1 + extra));
+      dispBits = c.bits.concat(bits.slice(j + 1, j + 1 + extra));
+      cPts = new Float64Array(dispSeq.length * 3);
+      cPts.set(MC.attachPositions(c.seq, c.bits, state.pts, mainAngs, j));
+      for (let k = 0; k < extra; k++) {
+        const d = (c.seq.length + k) * 3, s3 = (j + 1 + k) * 3;
+        cPts[d] = state.pts[s3]; cPts[d+1] = state.pts[s3+1];
+        cPts[d+2] = state.pts[s3+2];
+      }
+    } else {
+      mergeIdx = -1;
+      dispSeq = c.seq; dispBits = c.bits;
+      cPts = MC.buildPositions(c.seq, c.bits, MC.anchorTransform(c.anchor));
+    }
+    const keep = dispSeq.length;
+    const obj = makeStreamObjects(cPts, dispSeq, dispBits, startBits,
                                   false, mergeIdx);
     group.add(obj.line, obj.points);
-    let flare = null, mergePos = null;
+    let flare = null, mergePos = null, mergeLabel = null;
     if (mergeIdx >= 0) {
       mergePos = new THREE.Vector3(
         cPts[mergeIdx*3], cPts[mergeIdx*3+1], cPts[mergeIdx*3+2]);
+      mergeLabel = MC.labelText(dispSeq[mergeIdx]);
       flare = new THREE.Sprite(new THREE.SpriteMaterial({
         map: flareTex, transparent: true, opacity: 0.8,
         blending: THREE.AdditiveBlending, depthWrite: false,
@@ -666,36 +1024,52 @@ function startFlight(n, attract = false) {
       group.add(flare);
     }
     state.companions.push({
-      seq: c.seq, pts: cPts, keep, mergeIdx, mergePos, flare,
+      seq: c.seq, pts: cPts, keep, mergeIdx, mergePos, flare, mergeLabel,
+      anchor: c.anchor, escaped: c.escaped, merged: c.merged,
+      mats: [obj.line.material, obj.points.material],
       particles: [Math.random() * (keep - 1), Math.random() * (keep - 1)],
     });
   }
 
-  // 4-2-1 loop marker: golden triangle + comet, waiting at the origin
-  {
-    const lp = state.loopPts;
-    const tri = new THREE.BufferGeometry();
-    tri.setAttribute("position", new THREE.BufferAttribute(new Float32Array([
-      lp[0], lp[1], lp[2], lp[3], lp[4], lp[5], lp[6], lp[7], lp[8],
-    ]), 3));
-    const triLine = new THREE.LineLoop(tri, new THREE.LineBasicMaterial({
-      color: 0xffca70, transparent: true, opacity: 0.5,
+  // attractor markers: the main cycle golden; rival attractors dim silver
+  state.comet = null; state.loopGlows = []; state.attractorLabels = [];
+  const addMarker = (mpts, main) => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position",
+      new THREE.BufferAttribute(new Float32Array(mpts), 3));
+    const line = new THREE.LineLoop(g, new THREE.LineBasicMaterial({
+      color: main ? 0xffca70 : 0x9fb0e8, transparent: true,
+      opacity: main ? 0.5 : 0.28,
       blending: THREE.AdditiveBlending, depthWrite: false }));
-    triLine.frustumCulled = false;
-    group.add(triLine);
+    line.frustumCulled = false;
+    group.add(line);
+  };
+  if (state.loopPts) {
+    addMarker(state.loopPts, true);
     state.comet = new THREE.Sprite(new THREE.SpriteMaterial({
       map: flareTex, transparent: true, blending: THREE.AdditiveBlending,
       depthWrite: false }));
     state.comet.scale.setScalar(3);
     state.comet.material.opacity = 0.7;
     group.add(state.comet);
-    state.loopGlows = [0, 1, 2].map(k => {
+    state.loopGlows = state.markerSeq.map((_, k) => {
       const s = new THREE.Sprite(new THREE.SpriteMaterial({
         map: flareTex, color: 0xffc070, transparent: true,
         blending: THREE.AdditiveBlending, depthWrite: false }));
-      s.position.set(lp[k*3], lp[k*3+1], lp[k*3+2]);
+      s.position.set(state.loopPts[k*3], state.loopPts[k*3+1],
+                     state.loopPts[k*3+2]);
       group.add(s);
       return s;
+    });
+  }
+  for (const oc of otherCycles.values()) {
+    const mk = MC.cycleMarkerSeq(oc.cycle, oc.anchor);
+    const mpts = MC.buildPositions(mk.seq, mk.bits, MC.anchorTransform(oc.anchor));
+    addMarker(mpts, false);
+    const K = mk.seq.length - 1;
+    state.attractorLabels.push({
+      x: mpts[K*3], y: mpts[K*3+1], z: mpts[K*3+2],
+      text: `${MC.labelText(oc.anchor)} loop · ${oc.cycle.length}`,
     });
   }
 
@@ -726,7 +1100,7 @@ function startFlight(n, attract = false) {
   scene.add(group);
 
   state.s = 0;
-  state.baseSpeed = Math.min(60, Math.max(3, (seq.length - 1) / FLIGHT_SECONDS));
+  state.baseSpeed = Math.min(300, Math.max(3, (seq.length - 1) / FLIGHT_SECONDS));
   state.speedMult = attract ? 0.5 : 1;
   state.paused = false;
   state.introT = 0;
@@ -735,7 +1109,7 @@ function startFlight(n, attract = false) {
   state.lastHudIdx = -1;
   state.ovToggle = null;           // finale view back on automatic
   orbit.yaw = 0; orbit.pitch = 0; orbit.zoom = 1;
-  orbit.lastT = -1e9; orbit.dragging = false;
+  orbit.lastT = -1e9; orbit.dragging = false; orbit.quat.identity();
   state.chartDrawn = false;
   chartBase = null;
   camInit = false;                 // snap the smoothed camera to the new flight
@@ -750,6 +1124,14 @@ for (let i = 0; i < 34; i++) {
   d.className = "lbl";
   labelBox.appendChild(d);
   labelPool.push(d);
+}
+// BigInt -> text once per node per flight, not once per frame (matters for
+// 1500-digit values, where the decimal conversion itself is expensive)
+const labelCache = new Map();
+function cachedLabel(i) {
+  let s = labelCache.get(i);
+  if (s === undefined) { s = MC.labelText(state.seq[i]); labelCache.set(i, s); }
+  return s;
 }
 const _v = new THREE.Vector3();
 function projectToScreen(x, y, z) {
@@ -778,7 +1160,7 @@ function updateLabels() {
       if ((sc[0]-lastX)**2 + (sc[1]-lastY)**2 < 78**2) continue;
       const el = take(); if (!el) break;
       el.className = "lbl";
-      el.textContent = MC.labelText(state.seq[i]);
+      el.textContent = cachedLabel(i);
       el.style.left = sc[0] + "px"; el.style.top = sc[1] + "px";
       el.style.opacity = Math.min(1, (330 - d) / 200);
       el.style.display = "block";
@@ -793,31 +1175,34 @@ function updateLabels() {
       if (!sc) continue;
       const el = take(); if (!el) break;
       el.className = "lbl merge";
-      el.textContent = MC.labelText(c.seq[c.mergeIdx]);
+      el.textContent = c.mergeLabel;
       el.style.left = sc[0] + "px"; el.style.top = sc[1] + "px";
       el.style.opacity = 0.85;
       el.style.display = "block";
     }
   }
   if (state.hud && !state.attract && state.mode === "loop") {
-    const lp = state.loopPts;
-    const dLoop = camPos.distanceTo(_v.set(lp[0], lp[1], lp[2]));
-    if (dLoop < 400) {
-      ["4", "2", "1"].forEach((txt, k) => {
+    const dLoop = camPos.distanceTo(state.loopCenter);
+    if (dLoop < 400 && state.loopPts) {
+      const lp = state.loopPts, K = state.markerSeq.length;
+      const stride = Math.max(1, Math.ceil(K / 6));
+      for (let k = 0; k < K; k += stride) {
         const sc = projectToScreen(lp[k*3], lp[k*3+1], lp[k*3+2]);
-        if (!sc) return;
-        const el = take(); if (!el) return;
+        if (!sc) continue;
+        const el = take(); if (!el) break;
         el.className = "lbl loopnum";
-        el.textContent = txt;
+        el.textContent = MC.labelText(state.markerSeq[k]);
         el.style.left = sc[0] + "px"; el.style.top = sc[1] + "px";
         el.style.opacity = 1;
         el.style.display = "block";
-      });
+      }
     } else {
-      // overview: annotate the two ends of the corkscrew
+      // overview: the corkscrew's ends + every rival attractor in view
       const marks = [
-        [state.pts[0], state.pts[1], state.pts[2], MC.labelText(state.seq[0])],
-        [lp[6], lp[7], lp[8], "4 · 2 · 1"],
+        [state.pts[0], state.pts[1], state.pts[2], cachedLabel(0)],
+        [state.loopCenter.x, state.loopCenter.y, state.loopCenter.z,
+         state.cycleShort],
+        ...state.attractorLabels.map(l => [l.x, l.y, l.z, l.text]),
       ];
       for (const [x, y, z, txt] of marks) {
         const sc = projectToScreen(x, y, z);
@@ -840,6 +1225,12 @@ const roValue = document.getElementById("ro-value");
 const roStep = document.getElementById("ro-step");
 const roSpeed = document.getElementById("ro-speed");
 const roBloom = document.getElementById("ro-bloom");
+const roRule = document.getElementById("ro-rule");
+const roParity = document.getElementById("ro-parity");
+const roStreak = document.getElementById("ro-streak");
+const roExpect = document.getElementById("ro-expect");
+const loopBig = document.getElementById("loop-big");
+const loopSub = document.getElementById("loop-sub");
 const barFill = document.getElementById("barfill");
 const loopBanner = document.getElementById("loopbanner");
 
@@ -850,13 +1241,116 @@ function updateHud() {
   if (i !== state.lastHudIdx) {
     roValue.textContent = MC.sci(state.seq[i]);
     roStep.textContent = `${i.toLocaleString()} / ${(L-1).toLocaleString()}`;
+    const odd = i > 0 ? state.oddCum[i - 1] : 0;
+    const even = i - odd;
+    roParity.textContent = odd > 0
+      ? `${odd.toLocaleString()} odd · ${even.toLocaleString()} even` +
+        `  (1 : ${(even / odd).toFixed(2)})`
+      : `${even.toLocaleString()} even`;
+    roStreak.textContent = i > 0
+      ? `${state.streaks[i - 1]}× ` +
+        (state.seq[i - 1] % 2n !== 0n ? state.ruleName : "÷2")
+      : "—";
+    roExpect.textContent = state.expect === null
+      ? "— (5n rules usually never land)"
+      : `~${state.expect.toLocaleString()} steps for a number this size`;
     state.lastHudIdx = i;
   }
   roSpeed.textContent = `x${state.speedMult.toFixed(2)}` +
                         (state.paused ? "  [paused]" : "");
   roBloom.textContent = bloom.strength.toFixed(2) + "  ( [ / ] )";
+  roRule.textContent = state.ruleName +
+    (state.seq[0] < 0n ? "  (negative start)" : "");
   barFill.style.width = (100 * state.s / Math.max(1, L - 1)) + "%";
   loopBanner.style.display = state.mode === "loop" ? "block" : "none";
+  if (state.mode === "loop") {
+    loopBig.textContent = state.cycleText;
+    loopSub.textContent = state.escaped
+      ? "climbing forever — this trajectory (probably) never comes back"
+      : state.cycleShort === "4·2·1"
+        ? "trapped in the 4-2-1 loop, like every number ever tested"
+        : "one of several attractors in this universe";
+  }
+}
+
+// ------------------------------------------------------- screenshot (P)
+// the WebGL canvas is captured as-is; the DOM UI (HUD, labels, chart) is
+// redrawn on top only when currently visible — WYSIWYG either way
+const toastEl = document.getElementById("toast");
+let toastTimer = null;
+function toast(msg) {
+  toastEl.textContent = msg;
+  toastEl.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove("show"), 1700);
+}
+
+let pendingShot = false;
+function drawTextEl(ctx, el, font, color, center = false) {
+  if (!el || !el.textContent) return;
+  const r = el.getBoundingClientRect();
+  if (!r.width) return;
+  ctx.font = font;
+  ctx.fillStyle = color;
+  ctx.textBaseline = "top";
+  ctx.textAlign = center ? "center" : "left";
+  ctx.fillText(el.textContent, center ? r.left + r.width / 2 : r.left, r.top + 1);
+}
+
+function takeScreenshot() {
+  const w = innerWidth, h = innerHeight;
+  const dpr = Math.min(devicePixelRatio, 2);
+  const cv = document.createElement("canvas");
+  cv.width = w * dpr; cv.height = h * dpr;
+  const ctx = cv.getContext("2d");
+  ctx.scale(dpr, dpr);
+  ctx.drawImage(renderer.domElement, 0, 0, w, h);
+
+  if (state.hud && !state.attract && state.mode !== "idle") {
+    for (const div of document.querySelectorAll("#readout > div"))
+      drawTextEl(ctx, div, "14px Consolas, monospace", "#c3cae6");
+    for (const el of labelPool) {
+      if (el.style.display !== "block") continue;
+      const cls = el.className;
+      drawTextEl(ctx, el,
+        cls.includes("loopnum") ? "bold 30px Consolas, monospace"
+                                : "13px Consolas, monospace",
+        cls.includes("loopnum") ? "#ffefc8"
+          : cls.includes("merge") ? "#ffcd96" : "#cdd7fa");
+    }
+    if (state.mode === "loop") {
+      drawTextEl(ctx, loopBig, "bold 30px Consolas, monospace", "#ffe1a0", true);
+      drawTextEl(ctx, loopSub, "14px Consolas, monospace", "#aaa596", true);
+    }
+    drawTextEl(ctx, document.getElementById("hint"),
+               "12.5px Consolas, monospace", "#5f6482", true);
+    const bar = document.getElementById("bar").getBoundingClientRect();
+    ctx.fillStyle = "#282c46";
+    ctx.fillRect(bar.left, bar.top, bar.width, bar.height);
+    const fill = barFill.getBoundingClientRect();
+    ctx.fillStyle = "#8ca0ff";
+    ctx.fillRect(fill.left, fill.top, fill.width, fill.height);
+    if (!chartEl.classList.contains("hidden")) {
+      const pr = chartEl.getBoundingClientRect();
+      ctx.fillStyle = "rgba(9,12,26,.65)";
+      ctx.fillRect(pr.left, pr.top, pr.width, pr.height);
+      for (const sp of document.querySelectorAll("#chart-head span"))
+        drawTextEl(ctx, sp, "12.5px Consolas, monospace", "#9aa3cc");
+      const cr = chartCv.getBoundingClientRect();
+      ctx.drawImage(chartCv, cr.left, cr.top, cr.width, cr.height);
+    }
+  }
+
+  cv.toBlob(blob => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const tag = state.seq
+      ? MC.labelText(state.seq[0]).replace(/[^\w.-]/g, "") : "space";
+    a.download = `voyage-${state.ruleName.replace(/[^\w-]/g, "")}-${tag}.png`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    toast("screenshot saved  ·  " + a.download);
+  });
 }
 
 // ------------------------------------------------------- altitude chart
@@ -866,13 +1360,16 @@ const chartCv = document.getElementById("chartcv");
 const CW = 520, CH = 260, PAD = { l: 44, r: 12, t: 12, b: 22 };
 const SUP = "⁰¹²³⁴⁵⁶⁷⁸⁹";
 const sup = k => String(k).split("").map(c => SUP[+c]).join("");
-let chartBase = null, chartPeak = 0, chartYMax = 1;
+let chartBase = null, chartPeak = 0, chartYMax = 1, chartYMin = 0;
 
 function chartXY(step, lg) {
   const L = state.seq.length;
   return [PAD.l + (step / Math.max(1, L - 1)) * (CW - PAD.l - PAD.r),
-          PAD.t + (1 - lg / chartYMax) * (CH - PAD.t - PAD.b)];
+          PAD.t + (1 - (lg - chartYMin) / (chartYMax - chartYMin))
+                * (CH - PAD.t - PAD.b)];
 }
+const signedLog = i =>
+  (state.seq[i] < 0n ? -1 : 1) * (state.bits[i] - 1) * Math.log10(2);
 
 function drawChart() {
   const dpr = Math.min(devicePixelRatio, 2);
@@ -881,21 +1378,25 @@ function drawChart() {
   ctx.scale(dpr, dpr);
   ctx.font = "12px Consolas, monospace";
 
-  const L = state.seq.length, LOG2 = Math.log10(2);
-  const logs = state.bits.map(b => Math.max(0, (b - 1) * LOG2));
+  const L = state.seq.length;
+  const logs = state.bits.map((_, i) => signedLog(i));
   chartPeak = 0;
-  for (let i = 1; i < L; i++) if (state.seq[i] > state.seq[chartPeak]) chartPeak = i;
-  chartYMax = Math.max(2, logs[chartPeak] * 1.1);
+  for (let i = 1; i < L; i++)
+    if (state.bits[i] > state.bits[chartPeak]) chartPeak = i;
+  let mx = 0, mn = 0;
+  for (const lg of logs) { if (lg > mx) mx = lg; if (lg < mn) mn = lg; }
+  chartYMax = Math.max(1.5, mx * 1.1);
+  chartYMin = Math.min(0, mn * 1.1);
 
-  // recessive grid: horizontal lines at 10^k
-  const tick = Math.max(1, Math.ceil(chartYMax / 4));
+  // recessive grid: horizontal lines at ±10^k
+  const tick = Math.max(1, Math.ceil((chartYMax - chartYMin) / 4));
   ctx.textAlign = "right"; ctx.textBaseline = "middle";
-  for (let k = 0; k <= chartYMax; k += tick) {
+  for (let k = Math.ceil(chartYMin / tick) * tick; k <= chartYMax; k += tick) {
     const [, y] = chartXY(0, k);
     ctx.strokeStyle = k === 0 ? "rgba(150,160,210,.30)" : "rgba(140,160,255,.10)";
     ctx.beginPath(); ctx.moveTo(PAD.l, y); ctx.lineTo(CW - PAD.r, y); ctx.stroke();
     ctx.fillStyle = "#6b7099";
-    ctx.fillText("10" + sup(k), PAD.l - 5, y);
+    ctx.fillText(k < 0 ? "−10" + sup(-k) : "10" + sup(k), PAD.l - 5, y);
   }
   // x labels: first and last step
   ctx.textBaseline = "top"; ctx.textAlign = "left";
@@ -914,17 +1415,14 @@ function drawChart() {
   }
   path.push(chartXY(L - 1, logs[L - 1]));
 
-  // soft area under the line, then the 2px line itself
+  // soft area between the line and the zero baseline, then the line itself
   const [, y0] = chartXY(0, 0);
-  const grad = ctx.createLinearGradient(0, PAD.t, 0, y0);
-  grad.addColorStop(0, "rgba(140,160,255,.20)");
-  grad.addColorStop(1, "rgba(140,160,255,0)");
   ctx.beginPath();
   ctx.moveTo(path[0][0], y0);
   for (const [x, y] of path) ctx.lineTo(x, y);
   ctx.lineTo(path[path.length - 1][0], y0);
   ctx.closePath();
-  ctx.fillStyle = grad; ctx.fill();
+  ctx.fillStyle = "rgba(140,160,255,.10)"; ctx.fill();
   ctx.beginPath();
   for (let i = 0; i < path.length; i++)
     i ? ctx.lineTo(path[i][0], path[i][1]) : ctx.moveTo(path[i][0], path[i][1]);
@@ -941,46 +1439,70 @@ function drawChart() {
   ctx.textAlign = px > CW * 0.6 ? "right" : "left";
   ctx.fillText(MC.labelText(state.seq[chartPeak]),
                px + (px > CW * 0.6 ? -7 : 7), py + 2);
-  const [ex, ey] = chartXY(L - 1, 0);
+  const [ex, ey] = chartXY(L - 1, logs[L - 1]);
   ctx.fillStyle = "#9aa2c8"; ctx.textAlign = "right"; ctx.textBaseline = "bottom";
-  ctx.fillText("4·2·1", ex - 2, ey - 3);
+  ctx.fillText(state.cycleShort, ex - 2, ey - 3);
 
   chartBase = document.createElement("canvas");
   chartBase.width = chartCv.width; chartBase.height = chartCv.height;
   chartBase.getContext("2d").drawImage(chartCv, 0, 0);
 }
 
-function chartHover(ev) {
+// per-frame overlay on the static chart: live "you are here" dot + hover
+// crosshair; clicking scrubs the flight to that step
+let chartHoverX = null;
+
+function renderChartFrame() {
   if (!chartBase) return;
   const dpr = Math.min(devicePixelRatio, 2);
   const ctx = chartCv.getContext("2d");
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, chartCv.width, chartCv.height);
   ctx.drawImage(chartBase, 0, 0);
-  if (!ev) return;
-  const r = chartCv.getBoundingClientRect();
-  const mx = ev.clientX - r.left;
-  if (mx < PAD.l || mx > CW - PAD.r) return;
-  const L = state.seq.length, LOG2 = Math.log10(2);
-  const i = Math.round((mx - PAD.l) / (CW - PAD.l - PAD.r) * (L - 1));
-  const lg = Math.max(0, (state.bits[i] - 1) * LOG2);
-  const [x, y] = chartXY(i, lg);
   ctx.scale(dpr, dpr);
+
+  // live position: halo + dot riding the profile
+  const i = Math.min(Math.floor(state.s), state.seq.length - 1);
+  const [x, y] = chartXY(state.s, signedLog(i));
+  ctx.beginPath(); ctx.arc(x, y, 6.5, 0, 7);
+  ctx.fillStyle = "rgba(255,225,160,.25)"; ctx.fill();
+  ctx.beginPath(); ctx.arc(x, y, 3, 0, 7);
+  ctx.fillStyle = "#ffe1a0"; ctx.fill();
+  ctx.lineWidth = 1.2; ctx.strokeStyle = "rgba(9,12,26,.9)"; ctx.stroke();
+
+  if (chartHoverX === null) return;
+  const r = chartCv.getBoundingClientRect();
+  const mx = chartHoverX - r.left;
+  if (mx < PAD.l || mx > CW - PAD.r) return;
+  const L = state.seq.length;
+  const hi = Math.round((mx - PAD.l) / (CW - PAD.l - PAD.r) * (L - 1));
+  const [hx, hy] = chartXY(hi, signedLog(hi));
   ctx.strokeStyle = "rgba(200,210,255,.35)"; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(x, PAD.t); ctx.lineTo(x, CH - PAD.b); ctx.stroke();
-  ctx.beginPath(); ctx.arc(x, y, 3.5, 0, 7); ctx.fillStyle = "#fff"; ctx.fill();
-  const txt = `step ${i.toLocaleString()} · ${MC.labelText(state.seq[i])}`;
+  ctx.beginPath(); ctx.moveTo(hx, PAD.t); ctx.lineTo(hx, CH - PAD.b); ctx.stroke();
+  ctx.beginPath(); ctx.arc(hx, hy, 3.5, 0, 7); ctx.fillStyle = "#fff"; ctx.fill();
+  const txt = `step ${hi.toLocaleString()} · ${MC.labelText(state.seq[hi])}`;
   ctx.font = "12px Consolas, monospace";
   const w = ctx.measureText(txt).width + 14;
-  const bx = Math.min(Math.max(x - w / 2, PAD.l), CW - PAD.r - w);
+  const bx = Math.min(Math.max(hx - w / 2, PAD.l), CW - PAD.r - w);
   ctx.fillStyle = "rgba(9,12,26,.85)";
   ctx.strokeStyle = "rgba(126,147,255,.5)";
   ctx.fillRect(bx, PAD.t, w, 19); ctx.strokeRect(bx, PAD.t, w, 19);
   ctx.fillStyle = "#dfe5ff"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
   ctx.fillText(txt, bx + 7, PAD.t + 10);
 }
-chartCv.addEventListener("pointermove", chartHover);
-chartCv.addEventListener("pointerleave", () => chartHover(null));
+
+chartCv.addEventListener("pointermove", e => { chartHoverX = e.clientX; });
+chartCv.addEventListener("pointerleave", () => { chartHoverX = null; });
+chartCv.addEventListener("pointerdown", e => {
+  const r = chartCv.getBoundingClientRect();
+  const mx = e.clientX - r.left;
+  if (mx < PAD.l || mx > CW - PAD.r) return;
+  const L = state.seq.length;
+  state.s = Math.min(L - 1.001, Math.max(0,
+    (mx - PAD.l) / (CW - PAD.l - PAD.r) * (L - 1)));
+  if (state.mode === "loop") { state.mode = "fly"; state.introT = 99; }
+  e.stopPropagation();
+});
 chartEl.addEventListener("wheel", e => e.stopPropagation());
 
 // ------------------------------------------------------------- camera
@@ -999,7 +1521,8 @@ function overviewActive() {
 
 // user-controlled orbit in overview: drag rotates, wheel zooms,
 // auto-rotation resumes 5s after the last drag
-const orbit = { yaw: 0, pitch: 0, zoom: 1, lastT: -1e9, dragging: false };
+const orbit = { yaw: 0, pitch: 0, zoom: 1, lastT: -1e9, dragging: false,
+                quat: new THREE.Quaternion() };   // extra gizmo rotation
 
 function placeCamera(t, dt) {
   _dUp.set(0, 1, 0);
@@ -1013,18 +1536,18 @@ function placeCamera(t, dt) {
     _eye.copy(o.side).applyAxisAngle(o.axis, orbit.yaw)
         .multiplyScalar(Math.cos(orbit.pitch))
         .addScaledVector(o.axis, Math.sin(orbit.pitch))
-        .normalize().multiplyScalar(o.dist * orbit.zoom).add(o.center);
+        .normalize().applyQuaternion(orbit.quat)
+        .multiplyScalar(o.dist * orbit.zoom).add(o.center);
     _dLook.copy(o.center);
-    _dUp.copy(o.axis);            // start at the top, the 4-2-1 loop at the bottom
+    _dUp.copy(o.axis).applyQuaternion(orbit.quat);   // start up, loop down
   } else if (state.mode === "loop") {
-    const lp = state.loopPts;
-    _loopCenter.set((lp[0]+lp[3]+lp[6])/3, (lp[1]+lp[4]+lp[7])/3, (lp[2]+lp[5]+lp[8])/3);
+    const c = state.loopCenter;
     const a = state.loopT * 0.45;
-    const r = 42 + 6 * Math.sin(state.loopT * 0.3);
-    _eye.set(_loopCenter.x + Math.cos(a) * r,
-             _loopCenter.y + 14 + 5 * Math.sin(state.loopT * 0.5),
-             _loopCenter.z + Math.sin(a) * r);
-    _dLook.copy(_loopCenter);
+    const r = state.loopR * 1.9 + 26 + 6 * Math.sin(state.loopT * 0.3);
+    _eye.set(c.x + Math.cos(a) * r,
+             c.y + r * 0.4 + 5 * Math.sin(state.loopT * 0.5),
+             c.z + Math.sin(a) * r);
+    _dLook.copy(c);
   } else {
     // spatially low-passed anchor and heading (pathAvg clamps at both ends)
     pathAvg(state.pts, state.s - 3, state.s + 3, _p);
@@ -1090,43 +1613,78 @@ function animate() {
       c.flare.material.opacity = 0.11 * pulse;
       c.flare.scale.setScalar(3 + 1.8 * pulse);
     }
-    // 4-2-1 glows + comet forever circling
+    // cycle glows + comet forever circling (absent for escaping trajectories)
+    const K = state.markerSeq ? state.markerSeq.length : 0;
     state.loopGlows.forEach((g, k) => {
-      const pulse = 0.55 + 0.45 * Math.sin(elapsed * 3 - k * 2.09);
+      const pulse = 0.55 + 0.45 * Math.sin(elapsed * 3 - k * 6.28 / Math.max(1, K));
       g.material.opacity = 0.3 * pulse;
       g.scale.setScalar(3.5 + 2.5 * pulse);
     });
-    const lp = state.loopPts, cyc = (elapsed * 0.9) % 3;
-    const k = Math.floor(cyc), f = cyc - k, k2 = (k + 1) % 3;
-    state.comet.position.set(
-      lp[k*3]   * (1-f) + lp[k2*3]   * f,
-      lp[k*3+1] * (1-f) + lp[k2*3+1] * f,
-      lp[k*3+2] * (1-f) + lp[k2*3+2] * f);
+    if (state.comet) {
+      const lp = state.loopPts, cyc = (elapsed * 0.9) % K;
+      const k = Math.floor(cyc), f = cyc - k, k2 = (k + 1) % K;
+      state.comet.position.set(
+        lp[k*3]   * (1-f) + lp[k2*3]   * f,
+        lp[k*3+1] * (1-f) + lp[k2*3+1] * f,
+        lp[k*3+2] * (1-f) + lp[k2*3+2] * f);
+    }
 
-    // widen the stream fade-out when the overview pulls the camera far back
-    const fTarget = overviewActive()
-      ? Math.max(950, state.overview.dist * 1.5) : 950;
-    FADE.value += (fTarget - FADE.value) * (1 - Math.exp(-dt * 2));
+    // overview: no distance fade at all — the whole structure stays lit no
+    // matter its size or the zoom; flight keeps its 950-unit depth cueing.
+    // glide between the two in log space so both transitions feel even
+    const fTarget = overviewActive() ? 1e7 : 950;
+    const kF = 1 - Math.exp(-dt * 3);
+    FADE.value = Math.exp(
+      Math.log(FADE.value) + (Math.log(fTarget) - Math.log(FADE.value)) * kF);
 
     placeCamera(elapsed, dt);
     updateHud();
 
-    const showChart = overviewActive() && state.hud && !state.attract;
+    const showChart = state.hud && !state.attract;
     chartEl.classList.toggle("hidden", !showChart);
-    if (showChart && !state.chartDrawn) { drawChart(); state.chartDrawn = true; }
+    if (showChart) {
+      if (!state.chartDrawn) { drawChart(); state.chartDrawn = true; }
+      renderChartFrame();
+    }
+
+    if (state.pendingPick) {
+      if (overviewActive()) orbit.lastT = elapsed;  // hold rotation while deciding
+      else closePick();                             // left overview: dismiss
+    }
   }
 
   nebulaGroup.position.copy(camera.position);
   nebulaGroup.rotation.y = elapsed * 0.004;
   skyGroup.position.copy(camera.position);
   galaxySpin.rotation.y = elapsed * 0.005;
-  renderer.domElement.style.cursor =
-    overviewActive() ? (orbit.dragging ? "grabbing" : "grab") : "";
+  bhDisk.rotation.z = elapsed * 0.03;
+  renderer.domElement.style.cursor = overviewActive()
+    ? (gizmoHover ? "pointer" : orbit.dragging ? "grabbing" : "grab") : "";
   starMat.uniforms.uCam.value.copy(camera.position);
   starMat.uniforms.uTime.value = elapsed;
 
   updateLabels();
   composer.render();
+
+  // orientation gizmo: small scissored viewport, drawn after the bloom pass
+  if (overviewActive() && state.hud && !state.attract) {
+    gizmoGroup.quaternion.copy(camera.quaternion).invert();
+    const r = gizmoRect();
+    const vx = r.left;
+    const vy = innerHeight - r.top - GIZMO_S;
+    renderer.autoClear = false;
+    renderer.clearDepth();
+    renderer.setScissorTest(true);
+    renderer.setViewport(vx, vy, GIZMO_S, GIZMO_S);
+    renderer.setScissor(vx, vy, GIZMO_S, GIZMO_S);
+    renderer.render(gizmoScene, gizmoCam);
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, innerWidth, innerHeight);
+    renderer.autoClear = true;
+  }
+
+  // screenshot must read the WebGL buffer in the same frame it was drawn
+  if (pendingShot) { pendingShot = false; takeScreenshot(); }
 }
 
 // ------------------------------------------------------------- menu & input
@@ -1138,31 +1696,120 @@ const inErr = document.getElementById("inerr");
 function openMenu() {
   menuEl.classList.remove("hidden");
   inputRow.classList.add("hidden");
+  fameList.classList.add("hidden");
   inErr.textContent = "";
   if (state.mode !== "idle") { state.attract = true; hudEl.classList.add("hidden"); }
 }
-function launch(n) {
+// keep the URL a shareable deep link to the current voyage
+function updateUrl(expr) {
+  try {
+    const u = new URL(location.href);
+    if (expr && expr.length <= 400) {
+      u.searchParams.set("n", expr);
+      u.searchParams.set("rule", state.ruleName);
+    } else {
+      u.searchParams.delete("n");
+      u.searchParams.delete("rule");
+    }
+    history.replaceState(null, "", u);
+  } catch {}                       // some file:// setups forbid this — fine
+}
+function launch(n, expr) {
   menuEl.classList.add("hidden");
+  updateUrl(expr ?? n.toString());
   startFlight(n, false);
 }
 function showInput() {
   inputRow.classList.remove("hidden");
+  fameList.classList.add("hidden");
   numIn.value = ""; inErr.textContent = "";
   numIn.focus();
 }
 function submitInput() {
   const n = MC.parseNumber(numIn.value);
-  if (n === null || n < 1n)
-    inErr.textContent = "couldn't parse that — try 27, 3e9 or 7*10^120";
-  else if (n.toString().length > 3000)
-    inErr.textContent = "let's stay under 10^3000, cosmic traveller";
-  else launch(n);
+  const lim = state.ruleName.startsWith("5") ? 900 : 3000;
+  if (n === null || n === 0n)
+    inErr.textContent = "couldn't parse that — try 27, -7, 3e9 or 2^5000-1";
+  else if ((n < 0n ? -n : n).toString().length > lim)
+    inErr.textContent =
+      `let's stay under 10^${lim} for ${state.ruleName}, cosmic traveller`;
+  else launch(n, numIn.value.trim());
 }
 document.getElementById("opt-type").onclick = showInput;
 document.getElementById("opt-rand").onclick =
   () => launch(MC.randBigInt(2 + Math.floor(Math.random() * 11)));
 document.getElementById("opt-huge").onclick =
   () => launch(MC.randBigInt(50 + Math.floor(Math.random() * 251)));
+document.getElementById("opt-neg").onclick =
+  () => launch(-MC.randBigInt(2 + Math.floor(Math.random() * 6)));
+
+// hall of fame — per rule; every stat verified against this app's counting
+const SPECIALS = {
+  "3n+1": [
+    ["27", "the classic — 111 steps, peak 9,232"],
+    ["97", "118 steps to the same 9,232 peak — merges onto 27's highway"],
+    ["6171", "longest flight under 10,000 — 261 steps"],
+    ["837799", "champion below a million — 524 steps"],
+    ["6631675", "peak 60,342,610,919,632 — nine million times its size"],
+    ["63728127", "the marathon — 949 steps"],
+    ["2^166", "pure freefall — 166 halvings, never a single climb"],
+    ["2^5000-1", "maximal climber — 10,000 steps straight up to 10^2385"],
+    ["-7", "three steps down into the −5 loop"],
+    ["-91", "five steps into the grand 18-step −17 loop"],
+    ["-18273", "negative champion — 296 steps, deepest point −88,884,056"],
+  ],
+  "3n-1": [
+    ["3", "3 → 8 → 4 → 2 → 1 … but here 1 loops with 2"],
+    ["5", "a loop of its very own: 5 → 14 → 7 → 20 → 10"],
+    ["17", "gateway lap of the grand 18-step loop"],
+    ["25", "16 steps into the 17-loop"],
+    ["858341", "the wanderer — 561 steps before the 17-loop takes it"],
+    ["839429", "high flyer — peaks at 78,492,315,980, lands in the 5-loop"],
+  ],
+  "5n+1": [
+    ["7", "the first escaper — (probably) climbs forever"],
+    ["13", "its own 10-step island loop"],
+    ["17", "the rival 10-step island"],
+    ["15", "threads the needle — 14 steps down to the 1-loop"],
+    ["97", "safe passage through escaper country — 20 steps"],
+    ["92861", "against all odds — 455 steps, peak 6.4×10^12, still comes home"],
+  ],
+  "5n-1": [
+    ["3", "the scenic route — 18 steps to the familiar 4-2-1 triangle"],
+    ["19", "the drama queen — 436 steps for a two-digit number"],
+    ["-5", "sinks into the −13 loop below the plane"],
+    ["94499", "ultra-marathon — 621 steps"],
+    ["95915", "high flyer — peak 279,148,419,584"],
+  ],
+};
+const fameList = document.getElementById("famelist");
+function renderFame() {
+  fameList.innerHTML = "";
+  for (const [expr, blurb] of SPECIALS[state.ruleName]) {
+    const row = document.createElement("div");
+    row.className = "fame";
+    const bEl = document.createElement("b");
+    bEl.textContent = expr;
+    const sEl = document.createElement("span");
+    sEl.textContent = blurb;
+    row.append(bEl, sEl);
+    row.onclick = () => launch(MC.parseNumber(expr), expr);
+    fameList.appendChild(row);
+  }
+}
+document.getElementById("opt-fame").onclick = () => {
+  inputRow.classList.add("hidden");
+  fameList.classList.toggle("hidden");
+  if (!fameList.classList.contains("hidden")) renderFame();
+};
+document.querySelectorAll("#rulerow .chip").forEach(ch => {
+  ch.onclick = () => {
+    state.ruleName = ch.dataset.rule;
+    document.querySelectorAll("#rulerow .chip").forEach(c =>
+      c.classList.toggle("sel", c === ch));
+    if (!fameList.classList.contains("hidden")) renderFame();
+  };
+});
 numIn.addEventListener("keydown", e => {
   if (e.key === "Enter") submitInput();
   if (e.key === "Escape") { inputRow.classList.add("hidden"); numIn.blur(); }
@@ -1175,7 +1822,13 @@ addEventListener("keydown", e => {
     if (e.key === "1") showInput();
     else if (e.key === "2") document.getElementById("opt-rand").onclick();
     else if (e.key === "3") document.getElementById("opt-huge").onclick();
+    else if (e.key === "4") document.getElementById("opt-neg").onclick();
+    else if (e.key === "5") document.getElementById("opt-fame").onclick();
     return;
+  }
+  if (state.pendingPick) {
+    if (e.code === "KeyY" || e.code === "Enter") { flyPick(); return; }
+    if (e.code === "KeyN" || e.code === "Escape") { closePick(); return; }
   }
   switch (e.code) {
     case "Space": state.paused = !state.paused; e.preventDefault(); break;
@@ -1197,6 +1850,7 @@ addEventListener("keydown", e => {
     case "KeyV":
       if (state.mode === "loop") state.ovToggle = !overviewActive();
       break;
+    case "KeyP": pendingShot = true; break;
     case "BracketLeft":
       bloom.strength = Math.max(0, bloom.strength - 0.1); break;
     case "BracketRight":
@@ -1214,27 +1868,198 @@ addEventListener("wheel", e => {
       state.speedMult * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
 });
 
-// drag-to-rotate, overview only
-let dragPrev = null;
+// ------------------------------------------------- orientation gizmo
+// blender-style X/Y/Z rings in the top-right corner, overview mode only:
+// drag a ring to rotate the whole structure about that world axis
+const GIZMO_S = 118;
+const gizmoScene = new THREE.Scene();
+const gizmoCam = new THREE.OrthographicCamera(-1.45, 1.45, 1.45, -1.45, 0.1, 10);
+gizmoCam.position.z = 3;
+const gizmoGroup = new THREE.Group();
+gizmoScene.add(gizmoGroup);
+const gizmoRings = [];
+[[0xff5566, "x", new THREE.Vector3(1, 0, 0)],
+ [0x66cc66, "y", new THREE.Vector3(0, 1, 0)],
+ [0x5588ff, "z", new THREE.Vector3(0, 0, 1)]].forEach(([col, ax, axis]) => {
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.045, 8, 56),
+    new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.7 }));
+  const hit = new THREE.Mesh(new THREE.TorusGeometry(1, 0.17, 6, 32),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0,
+                                  depthWrite: false }));
+  if (ax === "x") { ring.rotation.y = Math.PI / 2; hit.rotation.y = Math.PI / 2; }
+  if (ax === "y") { ring.rotation.x = Math.PI / 2; hit.rotation.x = Math.PI / 2; }
+  hit.userData.axis = axis;
+  hit.userData.vis = ring;
+  gizmoGroup.add(ring, hit);
+  gizmoRings.push(hit);
+});
+const gizmoRay = new THREE.Raycaster();
+let gizmoDrag = null, gizmoHover = null;
+
+function gizmoRect() {   // CSS px: horizontally centered above the chart
+  return { left: innerWidth - 299 - GIZMO_S / 2,
+           top: innerHeight - 425 - GIZMO_S };
+}
+function gizmoNDC(x, y) {
+  const { left, top } = gizmoRect();
+  if (x < left || x > left + GIZMO_S || y < top || y > top + GIZMO_S) return null;
+  return { x: ((x - left) / GIZMO_S) * 2 - 1,
+           y: -(((y - top) / GIZMO_S) * 2 - 1) };
+}
+function gizmoPick(x, y) {
+  const ndc = gizmoNDC(x, y);
+  if (!ndc) return null;
+  gizmoRay.setFromCamera(ndc, gizmoCam);
+  const hits = gizmoRay.intersectObjects(gizmoRings, false);
+  return hits.length ? hits[0].object : null;
+}
+// mouse delta -> rotation about a world axis: drag perpendicular to the
+// axis's on-screen direction; if the axis faces the camera, spin in-plane
+const _axq = new THREE.Quaternion();
+function gizmoRotate(axis, dx, dy) {
+  let ang;
+  const c = state.overview ? state.overview.center : camera.position;
+  const p0 = projectToScreen(c.x, c.y, c.z);
+  const p1 = projectToScreen(c.x + axis.x * 100, c.y + axis.y * 100,
+                             c.z + axis.z * 100);
+  if (p0 && p1) {
+    let ax = p1[0] - p0[0], ay = p1[1] - p0[1];
+    const len = Math.hypot(ax, ay);
+    if (len > 12) { ax /= len; ay /= len; ang = (dx * -ay + dy * ax) * 0.012; }
+  }
+  if (ang === undefined) ang = (dx + dy) * 0.01;
+  orbit.quat.premultiply(_axq.setFromAxisAngle(axis, ang));
+}
+
+// drag-to-rotate, overview only; a near-motionless press is a stream pick
+let dragPrev = null, dragDist = 1e9;
 renderer.domElement.addEventListener("pointerdown", e => {
   if (!overviewActive()) return;
+  const g = state.hud && !state.attract
+    ? gizmoPick(e.clientX, e.clientY) : null;
+  if (g) {
+    gizmoDrag = g.userData.axis;
+    dragPrev = [e.clientX, e.clientY];
+    orbit.lastT = elapsed;
+    renderer.domElement.setPointerCapture(e.pointerId);
+    return;
+  }
   orbit.dragging = true;
   dragPrev = [e.clientX, e.clientY];
+  dragDist = 0;
   orbit.lastT = elapsed;
   renderer.domElement.setPointerCapture(e.pointerId);
 });
 addEventListener("pointermove", e => {
-  if (!orbit.dragging) return;
+  if (gizmoDrag) {
+    gizmoRotate(gizmoDrag, e.clientX - dragPrev[0], e.clientY - dragPrev[1]);
+    dragPrev = [e.clientX, e.clientY];
+    orbit.lastT = elapsed;
+    return;
+  }
+  if (!orbit.dragging) {
+    if (overviewActive() && state.hud && !state.attract) {  // ring hover
+      const h = gizmoPick(e.clientX, e.clientY);
+      if (h !== gizmoHover) {
+        if (gizmoHover) gizmoHover.userData.vis.material.opacity = 0.7;
+        gizmoHover = h;
+        if (h) h.userData.vis.material.opacity = 1.0;
+      }
+    } else if (gizmoHover) {
+      gizmoHover.userData.vis.material.opacity = 0.7;
+      gizmoHover = null;
+    }
+    return;
+  }
+  dragDist += Math.abs(e.clientX - dragPrev[0]) + Math.abs(e.clientY - dragPrev[1]);
   orbit.yaw -= (e.clientX - dragPrev[0]) * 0.005;
   orbit.pitch = Math.min(1.15, Math.max(-1.15,
     orbit.pitch + (e.clientY - dragPrev[1]) * 0.004));
   dragPrev = [e.clientX, e.clientY];
   orbit.lastT = elapsed;
 });
-addEventListener("pointerup", () => { orbit.dragging = false; });
+addEventListener("pointerup", e => {
+  if (gizmoDrag) { gizmoDrag = null; return; }
+  const wasDrag = orbit.dragging;
+  orbit.dragging = false;
+  if (wasDrag && dragDist < 6 && overviewActive())
+    pickStream(e.clientX, e.clientY);
+});
 
+// ---------------------------------------------- stream picking (overview)
+const pickBox = document.getElementById("pickbox");
+const pickTitle = document.getElementById("pick-title");
+const pickSub = document.getElementById("pick-sub");
+
+function closePick() {
+  if (state.pendingPick) {
+    state.pendingPick.mats[0].uniforms.uOp.value = 0.16;   // un-highlight
+    state.pendingPick.mats[1].uniforms.uOp.value = 0.3;
+  }
+  state.pendingPick = null;
+  pickBox.classList.add("hidden");
+}
+
+function openPick(c) {
+  closePick();
+  state.pendingPick = c;
+  c.mats[0].uniforms.uOp.value = 0.55;                     // highlight
+  c.mats[1].uniforms.uOp.value = 0.95;
+  pickTitle.textContent = MC.labelText(c.seq[0]);
+  pickSub.textContent = (c.merged
+    ? `merges into your stream at ${c.mergeLabel} after ` +
+      `${c.mergeIdx.toLocaleString()} steps`
+    : `${(c.seq.length - 1).toLocaleString()} steps · ` +
+      (c.escaped ? "escapes toward infinity"
+                 : `lands in the ${MC.labelText(c.anchor)} loop`))
+    + " — fly this number?";
+  pickBox.classList.remove("hidden");
+}
+
+function flyPick() {
+  if (!state.pendingPick) return;
+  const n = state.pendingPick.seq[0];
+  closePick();
+  updateUrl(n.toString());
+  startFlight(n, false);
+}
+
+function pickStream(x, y) {
+  let best = null, bestD = 28 * 28;
+  for (const c of state.companions) {
+    const L = c.pts.length / 3;
+    const stride = Math.max(1, Math.floor(L / 400));
+    for (let i = 0; i < L; i += stride) {
+      const sc = projectToScreen(c.pts[i*3], c.pts[i*3+1], c.pts[i*3+2]);
+      if (!sc) continue;
+      const d = (sc[0] - x) ** 2 + (sc[1] - y) ** 2;
+      if (d < bestD) { bestD = d; best = c; }
+    }
+  }
+  if (best) openPick(best); else closePick();
+}
+document.getElementById("pick-yes").onclick = flyPick;
+document.getElementById("pick-no").onclick = closePick;
+
+// deep link (?n=27&rule=3n-1) launches that voyage directly; otherwise
 // attract mode: a quiet random voyage drifts behind the menu
-startFlight(MC.randBigInt(7), true);
+{
+  const qp = new URLSearchParams(location.search);
+  const qRule = qp.get("rule");
+  if (qRule && MC.RULES[qRule]) {
+    state.ruleName = qRule;
+    document.querySelectorAll("#rulerow .chip").forEach(c =>
+      c.classList.toggle("sel", c.dataset.rule === qRule));
+  }
+  const qN = qp.get("n") ? MC.parseNumber(qp.get("n")) : null;
+  const lim = state.ruleName.startsWith("5") ? 900 : 3000;
+  if (qN && qN !== 0n && (qN < 0n ? -qN : qN).toString().length <= lim) {
+    menuEl.classList.add("hidden");
+    startFlight(qN, false);
+  } else {
+    startFlight(MC.randBigInt(7), true);
+  }
+}
 animate();
 </script>
 <script>
