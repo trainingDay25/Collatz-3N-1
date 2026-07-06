@@ -40,7 +40,8 @@
           background: rgba(4,5,12,.55); backdrop-filter: blur(5px); }
   #menu.hidden, #hud.hidden, #loopbanner.hidden { display: none; }
   #menu-inner { text-align: center; max-width: 720px; width: 92%; }
-  #menu h1 { color: #e1e6ff; font-size: clamp(22px, 4vw, 40px); letter-spacing: .18em;
+  #menu h1 { color: #e1e6ff; font-size: clamp(19px, 3.1vw, 38px);
+             letter-spacing: .16em; white-space: nowrap;
              text-shadow: 0 0 34px rgba(110,130,255,.65); font-weight: bold; }
   #menu .tagline { color: #8c91b4; margin: 14px 0 26px; }
   #rulerow { display: flex; gap: 10px; justify-content: center; margin: 0 0 30px; }
@@ -56,9 +57,11 @@
          background: rgba(16,19,40,.65); transition: all .15s; }
   .opt:hover { border-color: #7e93ff; box-shadow: 0 0 18px rgba(110,130,255,.25);
                color: #fff; }
-  .opt span { color: #6b7099; font-size: .8em; float: right; margin-top: .2em; }
+  .opt { overflow: hidden; }              /* contain the floated hint */
+  .opt span { color: #6b7099; font-size: .8em; float: right; margin-top: .2em;
+              white-space: nowrap; }
   .opt.hidden { display: none; }
-  #opt-resume { border-color: #4a5480; }
+  #opt-resume { border-color: #4a5480; margin-bottom: 24px; }
   #mutebtn { position: absolute; top: 20px; right: 24px; }
   #inputrow { max-width: 560px; margin: 18px auto 0; }
   #inputrow.hidden { display: none; }
@@ -142,7 +145,7 @@
     <div class="sub" id="loop-sub"></div>
   </div>
   <div id="hint">SPACE pause &nbsp;·&nbsp; ↑/↓ or wheel speed &nbsp;·&nbsp; ←/→ scrub
-    &nbsp;·&nbsp; V overview (drag rotate, wheel zoom) &nbsp;·&nbsp; TAB hud
+    &nbsp;·&nbsp; V overview (drag · wheel · WASD roam · Q back) &nbsp;·&nbsp; TAB hud
     &nbsp;·&nbsp; P screenshot &nbsp;·&nbsp; M music &nbsp;·&nbsp; R menu</div>
   <div id="bar"><div id="barfill"></div></div>
 </div>
@@ -166,7 +169,7 @@
   <div id="menu-inner">
     <h1>C O L L A T Z&nbsp;&nbsp;V O Y A G E</h1>
     <div class="tagline">every number falls. watch yours.</div>
-    <div class="opt hidden" id="opt-resume">[0]&nbsp; return to flight <span>your voyage continues behind this menu</span></div>
+    <div class="opt hidden" id="opt-resume">[0]&nbsp; return to flight <span>still flying · ESC</span></div>
     <div id="rulerow">
       <span class="chip sel" data-rule="3n+1">3n+1</span>
       <span class="chip" data-rule="3n-1">3n−1</span>
@@ -971,7 +974,7 @@ function startFlight(n, attract = false) {
     state.overview = { center, axis, side, dist };
     // far plane must cover the deepest case: fully zoomed out (5x) with the
     // structure's whole span beyond the pivot
-    camera.far = Math.max(7000, dist * 8);
+    camera.far = Math.max(16000, dist * 8);   // covers roaming to rival loops
     camera.updateProjectionMatrix();
   }
 
@@ -1136,6 +1139,7 @@ function startFlight(n, attract = false) {
   state.ovToggle = null;           // finale view back on automatic
   orbit.yaw = 0; orbit.pitch = 0; orbit.zoom = 1;
   orbit.lastT = -1e9; orbit.dragging = false; orbit.quat.identity();
+  freeCam.active = false;
   state.chartDrawn = false;
   chartBase = null;
   camInit = false;                 // snap the smoothed camera to the new flight
@@ -1145,7 +1149,7 @@ function startFlight(n, attract = false) {
 // ------------------------------------------------------------- labels
 const labelBox = document.getElementById("labels");
 const labelPool = [];
-for (let i = 0; i < 34; i++) {
+for (let i = 0; i < 48; i++) {
   const d = document.createElement("div");
   d.className = "lbl";
   labelBox.appendChild(d);
@@ -1240,6 +1244,42 @@ function updateLabels() {
         el.style.opacity = 0.9;
         el.style.display = "block";
       }
+    }
+    // proximity labels while roaming: any stream you get close to shows the
+    // values at its steps (coarse scan finds near regions, fine scan labels)
+    const NEAR = 340, COARSE = 40;
+    let lastX = -1e9, lastY = -1e9;
+    const labelStream = (pts, count, getLbl) => {
+      const L = Math.min(count, pts.length / 3);
+      for (let c = 0; c < L; c += COARSE) {
+        const cd = camPos.distanceTo(_v.set(pts[c*3], pts[c*3+1], pts[c*3+2]));
+        if (cd > NEAR + COARSE * 7.5) continue;
+        const hi = Math.min(L - 1, c + COARSE - 1);
+        for (let i = Math.max(0, c - 1); i <= hi; i++) {
+          const x = pts[i*3], y = pts[i*3+1], z2 = pts[i*3+2];
+          const d = camPos.distanceTo(_v.set(x, y, z2));
+          if (d < 18 || d > NEAR) continue;
+          const sc = projectToScreen(x, y, z2);
+          if (!sc) continue;
+          if ((sc[0]-lastX)**2 + (sc[1]-lastY)**2 < 88**2) continue;
+          const el = take(); if (!el) return;
+          el.className = "lbl";
+          el.textContent = getLbl(i);
+          el.style.left = sc[0] + "px"; el.style.top = sc[1] + "px";
+          el.style.opacity = Math.min(1, (NEAR - d) / 180);
+          el.style.display = "block";
+          lastX = sc[0]; lastY = sc[1];
+        }
+      }
+    };
+    labelStream(state.pts, state.seq.length, cachedLabel);
+    for (const c of state.companions) {
+      if (!c.lblCache) c.lblCache = new Map();
+      labelStream(c.pts, c.seq.length, i => {
+        let s = c.lblCache.get(i);
+        if (s === undefined) { s = MC.labelText(c.seq[i]); c.lblCache.set(i, s); }
+        return s;
+      });
     }
   }
   for (let i = used; i < labelPool.length; i++) labelPool[i].style.display = "none";
@@ -1560,9 +1600,50 @@ function overviewActive() {
 const orbit = { yaw: 0, pitch: 0, zoom: 1, lastT: -1e9, dragging: false,
                 quat: new THREE.Quaternion() };   // extra gizmo rotation
 
+// free-roam camera inside the overview: WASD moves, drag looks around,
+// wheel sets pace, Q glides back to the framed orbit
+const freeCam = { active: false, pos: new THREE.Vector3(),
+                  yaw: 0, pitch: 0, speed: 1 };
+const keysDown = new Set();
+function enterFreeCam() {
+  freeCam.active = true;
+  freeCam.pos.copy(camera.position);
+  const d = _sLook.clone().sub(camera.position).normalize();
+  freeCam.yaw = Math.atan2(d.x, d.z);
+  freeCam.pitch = Math.asin(Math.max(-1, Math.min(1, d.y)));
+  freeCam.speed = 1;
+}
+addEventListener("keydown", e => {
+  if (!["KeyW", "KeyA", "KeyS", "KeyD"].includes(e.code)) return;
+  if (!menuEl.classList.contains("hidden")) return;
+  keysDown.add(e.code);
+  if (overviewActive() && !freeCam.active) enterFreeCam();
+});
+addEventListener("keyup", e => keysDown.delete(e.code));
+
 function placeCamera(t, dt) {
   _dUp.set(0, 1, 0);
-  if (state.mode === "loop" && overviewActive()) {
+  if (state.mode === "loop" && overviewActive() && freeCam.active) {
+    // free roam: WASD relative to the view, clamped to a generous sphere
+    const o = state.overview;
+    const cp = Math.cos(freeCam.pitch), sp = Math.sin(freeCam.pitch);
+    const sy = Math.sin(freeCam.yaw), cy = Math.cos(freeCam.yaw);
+    _d.set(sy * cp, sp, cy * cp);              // look direction
+    _p.set(-cy, 0, sy);                        // screen-right, horizontal
+    const v = o.dist * 0.5 * freeCam.speed * dt;
+    if (keysDown.has("KeyW")) freeCam.pos.addScaledVector(_d, v);
+    if (keysDown.has("KeyS")) freeCam.pos.addScaledVector(_d, -v);
+    if (keysDown.has("KeyD")) freeCam.pos.addScaledVector(_p, v);
+    if (keysDown.has("KeyA")) freeCam.pos.addScaledVector(_p, -v);
+    const R = Math.max(8000, o.dist * 2.5);    // boundary: rival loops sit
+    _far.copy(freeCam.pos).sub(o.center);      // up to ~4000 units out
+    if (_far.lengthSq() > R * R)
+      freeCam.pos.copy(o.center).addScaledVector(_far.normalize(), R);
+    _eye.copy(freeCam.pos);
+    // look-ahead must dwarf the damping lag at this structure's speeds,
+    // or eye and look-point cross during turns and the view flips 180°
+    _dLook.copy(freeCam.pos).addScaledVector(_d, Math.max(150, o.dist * 0.8));
+  } else if (state.mode === "loop" && overviewActive()) {
     // side profile of the whole corkscrew; user drag/zoom, else slow drift
     const o = state.overview;
     if (t - orbit.lastT > 5) {
@@ -1603,8 +1684,9 @@ function placeCamera(t, dt) {
   // critically-damped drift toward the desired pose: the camera has "mass",
   // so path kinks, scrubs and the fly->loop handover all become glides
   if (!camInit) { _sEye.copy(_eye); _sLook.copy(_dLook); _sUp.copy(_dUp); camInit = true; }
-  _sEye.lerp(_eye, 1 - Math.exp(-dt * (orbit.dragging ? 12.0 : 4.0)));
-  _sLook.lerp(_dLook, 1 - Math.exp(-dt * 6.0));
+  const eyeRate = freeCam.active || orbit.dragging ? 12.0 : 4.0;
+  _sEye.lerp(_eye, 1 - Math.exp(-dt * eyeRate));
+  _sLook.lerp(_dLook, 1 - Math.exp(-dt * (freeCam.active ? 14.0 : 6.0)));
   _sUp.lerp(_dUp, 1 - Math.exp(-dt * 3.0)).normalize();
   camera.up.copy(_sUp);
   camera.position.copy(_sEye);
@@ -1693,6 +1775,7 @@ function animate() {
       if (overviewActive()) orbit.lastT = elapsed;  // hold rotation while deciding
       else closePick();                             // left overview: dismiss
     }
+    if (freeCam.active && !overviewActive()) freeCam.active = false;
   }
 
   nebulaGroup.position.copy(camera.position);
@@ -1710,7 +1793,7 @@ function animate() {
   composer.render();
 
   // orientation gizmo: small scissored viewport, drawn after the bloom pass
-  if (overviewActive() && state.hud && !state.attract) {
+  if (overviewActive() && state.hud && !state.attract && !freeCam.active) {
     gizmoGroup.quaternion.copy(camera.quaternion).invert();
     const r = gizmoRect();
     const vx = r.left;
@@ -1904,6 +1987,9 @@ addEventListener("keydown", e => {
     case "KeyV":
       if (state.mode === "loop") state.ovToggle = !overviewActive();
       break;
+    case "KeyQ":
+      freeCam.active = false;        // glide back to the framed orbit
+      break;
     case "KeyP": pendingShot = true; break;
     case "KeyM": muteToggle(); break;
     case "BracketLeft":
@@ -1915,7 +2001,10 @@ addEventListener("keydown", e => {
 });
 addEventListener("wheel", e => {
   if (!menuEl.classList.contains("hidden")) return;
-  if (overviewActive())              // overview: wheel = zoom, never speed
+  if (overviewActive() && freeCam.active)   // roaming: wheel sets the pace
+    freeCam.speed = Math.min(6, Math.max(0.08,
+      freeCam.speed * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+  else if (overviewActive())         // overview: wheel = zoom, never speed
     orbit.zoom = Math.min(5, Math.max(0.12,
       orbit.zoom * (e.deltaY > 0 ? 1.12 : 1 / 1.12)));
   else
@@ -1992,7 +2081,7 @@ function gizmoRotate(axis, dx, dy) {
 let dragPrev = null, dragDist = 1e9;
 renderer.domElement.addEventListener("pointerdown", e => {
   if (!overviewActive()) return;
-  const gizmoLive = state.hud && !state.attract;
+  const gizmoLive = state.hud && !state.attract && !freeCam.active;
   const g = gizmoLive ? gizmoPick(e.clientX, e.clientY) : null;
   if (g) {
     gizmoDrag = g.userData.axis;
@@ -2018,8 +2107,8 @@ addEventListener("pointermove", e => {
     return;
   }
   if (!orbit.dragging) {
-    if (overviewActive() && state.hud && !state.attract) {  // ring hover
-      const h = gizmoPick(e.clientX, e.clientY);
+    if (overviewActive() && state.hud && !state.attract && !freeCam.active) {
+      const h = gizmoPick(e.clientX, e.clientY);            // ring hover
       if (h !== gizmoHover) {
         if (gizmoHover) gizmoHover.userData.vis.material.opacity = 0.7;
         gizmoHover = h;
@@ -2032,9 +2121,15 @@ addEventListener("pointermove", e => {
     return;
   }
   dragDist += Math.abs(e.clientX - dragPrev[0]) + Math.abs(e.clientY - dragPrev[1]);
-  orbit.yaw -= (e.clientX - dragPrev[0]) * 0.005;
-  orbit.pitch = Math.min(1.15, Math.max(-1.15,
-    orbit.pitch + (e.clientY - dragPrev[1]) * 0.004));
+  if (freeCam.active) {                        // roaming: drag looks around
+    freeCam.yaw -= (e.clientX - dragPrev[0]) * 0.0035;
+    freeCam.pitch = Math.min(1.5, Math.max(-1.5,
+      freeCam.pitch - (e.clientY - dragPrev[1]) * 0.0035));
+  } else {
+    orbit.yaw -= (e.clientX - dragPrev[0]) * 0.005;
+    orbit.pitch = Math.min(1.15, Math.max(-1.15,
+      orbit.pitch + (e.clientY - dragPrev[1]) * 0.004));
+  }
   dragPrev = [e.clientX, e.clientY];
   orbit.lastT = elapsed;
 });
@@ -2089,19 +2184,45 @@ function flyPick() {
   startFlight(n, false);
 }
 
+function distToSeg(px, py, ax, ay, bx, by) {   // squared px dist to segment
+  const dx = bx - ax, dy = by - ay;
+  const L2 = dx * dx + dy * dy;
+  const t = L2 > 0 ? Math.max(0, Math.min(1,
+    ((px - ax) * dx + (py - ay) * dy) / L2)) : 0;
+  return (px - (ax + dx * t)) ** 2 + (py - (ay + dy * t)) ** 2;
+}
+
 function pickStream(x, y) {
-  let best = null, bestD = 28 * 28;
+  // phase 1: coarse screen-space chords, generous net — nominates a stream
+  // by distance to its LINE, not to sparse sample points, so neighbouring
+  // streams resolve correctly and close-ups still register
+  let cand = null, candD = 120 * 120, candI = 0;
   for (const c of state.companions) {
-    const L = c.pts.length / 3;
-    const stride = Math.max(1, Math.floor(L / 400));
+    const pts = c.pts, L = pts.length / 3;
+    const stride = Math.max(1, Math.floor(L / 500));
+    let prev = null;
     for (let i = 0; i < L; i += stride) {
-      const sc = projectToScreen(c.pts[i*3], c.pts[i*3+1], c.pts[i*3+2]);
-      if (!sc) continue;
-      const d = (sc[0] - x) ** 2 + (sc[1] - y) ** 2;
-      if (d < bestD) { bestD = d; best = c; }
+      const sc = projectToScreen(pts[i*3], pts[i*3+1], pts[i*3+2]);
+      if (sc && prev) {
+        const d = distToSeg(x, y, prev[0], prev[1], sc[0], sc[1]);
+        if (d < candD) { candD = d; cand = c; candI = i; }
+      }
+      prev = sc;
     }
   }
-  if (best) openPick(best); else closePick();
+  if (!cand) { closePick(); return; }
+  // phase 2: exact per-node segments around the hit region, strict radius
+  const pts = cand.pts, L = pts.length / 3;
+  const stride = Math.max(1, Math.floor(L / 500));
+  let hit = 1e9, prev = null;
+  for (let i = Math.max(0, candI - 2 * stride);
+       i <= Math.min(L - 1, candI + stride); i++) {
+    const sc = projectToScreen(pts[i*3], pts[i*3+1], pts[i*3+2]);
+    if (sc && prev)
+      hit = Math.min(hit, distToSeg(x, y, prev[0], prev[1], sc[0], sc[1]));
+    prev = sc;
+  }
+  if (hit < 36 * 36) openPick(cand); else closePick();
 }
 document.getElementById("pick-yes").onclick = flyPick;
 document.getElementById("pick-no").onclick = closePick;
