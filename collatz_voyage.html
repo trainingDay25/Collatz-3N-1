@@ -57,6 +57,9 @@
   .opt:hover { border-color: #7e93ff; box-shadow: 0 0 18px rgba(110,130,255,.25);
                color: #fff; }
   .opt span { color: #6b7099; font-size: .8em; float: right; margin-top: .2em; }
+  .opt.hidden { display: none; }
+  #opt-resume { border-color: #4a5480; }
+  #mutebtn { position: absolute; top: 20px; right: 24px; }
   #inputrow { max-width: 560px; margin: 18px auto 0; }
   #inputrow.hidden { display: none; }
   #numin { width: 100%; padding: 13px 16px; font: inherit; font-size: 19px;
@@ -140,7 +143,7 @@
   </div>
   <div id="hint">SPACE pause &nbsp;·&nbsp; ↑/↓ or wheel speed &nbsp;·&nbsp; ←/→ scrub
     &nbsp;·&nbsp; V overview (drag rotate, wheel zoom) &nbsp;·&nbsp; TAB hud
-    &nbsp;·&nbsp; P screenshot &nbsp;·&nbsp; R menu</div>
+    &nbsp;·&nbsp; P screenshot &nbsp;·&nbsp; M music &nbsp;·&nbsp; R menu</div>
   <div id="bar"><div id="barfill"></div></div>
 </div>
 
@@ -159,9 +162,11 @@
 </div>
 
 <div id="menu">
+  <span class="chip sel" id="mutebtn">♪ music on</span>
   <div id="menu-inner">
     <h1>C O L L A T Z&nbsp;&nbsp;V O Y A G E</h1>
     <div class="tagline">every number falls. watch yours.</div>
+    <div class="opt hidden" id="opt-resume">[0]&nbsp; return to flight <span>your voyage continues behind this menu</span></div>
     <div id="rulerow">
       <span class="chip sel" data-rule="3n+1">3n+1</span>
       <span class="chip" data-rule="3n-1">3n−1</span>
@@ -175,11 +180,11 @@
     <div class="opt" id="opt-fame">[5]&nbsp; hall of fame <span>famous trajectories of this rule</span></div>
     <div id="inputrow" class="hidden">
       <input id="numin" autocomplete="off" spellcheck="false"
-             placeholder="27, -7, 3e9, 2^5000-1 …">
+             placeholder="27, -7, 3e9, 3*2^5000-1 …">
       <div id="inerr"></div>
     </div>
     <div id="famelist" class="hidden"></div>
-    <div id="menuhint">1 – 5 select · ENTER confirm · ESC back<br>
+    <div id="menuhint">0 resume · 1 – 5 select · M music · ESC resume<br>
       even step bends the stream +7.5°, odd −14.5° — that curl is the mathematics</div>
   </div>
 </div>
@@ -235,10 +240,12 @@ const MC = (() => {
         return { seq, bits: bitArr, cycle: null, anchor: null,
                  escaped: false, merged: true };
       }
-      const hit = seen.get(v);
+      // every known cycle lives among small values — tracking only those
+      // keeps the Map tiny and skips hashing 10k-bit keys on giant orbits
+      const hit = bits <= 68 ? seen.get(v) : undefined;
       if (hit !== undefined) { cycle = seq.slice(hit); break; }
       seq.push(v); bitArr.push(bits);
-      seen.set(v, seq.length - 1);
+      if (bits <= 68) seen.set(v, seq.length - 1);
       if (bits > rule.escape) { escaped = true; break; }
     }
     let anchor;
@@ -290,25 +297,29 @@ const MC = (() => {
   function parseUnsigned(t) {
     try {
       const mantExp = (m, e) => {
+        if (!/^\d+(\.\d+)?$/.test(m) || !/^\d+$/.test(e)) return null;
         const exp = parseInt(e, 10);
-        if (!/^\d+(\.\d+)?$/.test(m) || !Number.isFinite(exp) || exp < 0) return null;
         const dot = m.indexOf(".");
         const digits = m.replace(".", "");
         const frac = dot < 0 ? 0 : m.length - dot - 1;
         if (exp - frac < 0) return null;
         return BigInt(digits) * 10n ** BigInt(exp - frac);
       };
-      if (t.includes("*10^")) { const [m, e] = t.split("*10^"); return mantExp(m, e); }
-      if (t.startsWith("10^")) return mantExp("1", t.slice(3));
-      const pow = t.match(/^(\d+)\^(\d+)([+-]\d+)?$/); // base^exp±c, e.g. 2^5000-1
+      // [mant*]base^exp[±c] — 2^166, 2^5000-1, 3*2^5000-1, 7*10^120+5 ...
+      const pow = t.match(/^(?:(\d+)\*)?(\d+)\^(\d+)([+-]\d+)?$/);
       if (pow) {
-        const exp = parseInt(pow[2], 10);
-        if (pow[1] === "0" || pow[1] === "1") return BigInt(pow[1]);
-        if (exp * Math.log10(Number(pow[1])) > 3100) return null;  // keep it sane
-        const off = pow[3] ? BigInt(pow[3].replace("+", "")) : 0n;
-        const v = BigInt(pow[1]) ** BigInt(exp) + off;
+        const mant = BigInt(pow[1] || "1");
+        const base = pow[2];
+        const exp = parseInt(pow[3], 10);
+        if (base !== "0" && base !== "1" &&
+            exp * Math.log10(Number(base)) + (pow[1] || "").length > 3100)
+          return null;                                   // keep it sane
+        const off = pow[4] ? BigInt(pow[4].replace("+", "")) : 0n;
+        const v = mant * BigInt(base) ** BigInt(exp) + off;
         return v >= 1n ? v : null;
       }
+      if (t.includes("*10^")) { const [m, e] = t.split("*10^"); return mantExp(m, e); }
+      if (t.startsWith("10^")) return mantExp("1", t.slice(3));
       if (t.includes("e")) { const [m, e] = t.split("e"); return mantExp(m, e); }
       if (!/^\d+$/.test(t)) return null;
       return BigInt(t);
@@ -392,6 +403,10 @@ const MC = (() => {
     ok(parseNumber("2^166") === 2n ** 166n, "parse 2^166");
     ok(parseNumber("2^5000-1") === 2n ** 5000n - 1n, "parse 2^5000-1");
     ok(parseNumber("2^10+1") === 1025n, "parse 2^10+1");
+    ok(parseNumber("3*2^5000-1") === 3n * 2n ** 5000n - 1n, "parse 3*2^5000-1");
+    ok(parseNumber("3*2^10+1") === 3073n, "parse 3*2^10+1");
+    ok(parseNumber("10^100+1") === 10n ** 100n + 1n, "parse 10^100+1");
+    ok(parseNumber("3e9-1") === null, "reject ambiguous 3e9-1");
     ok(parseNumber("banana") === null, "reject banana");
     ok(parseNumber("-27") === -27n, "parse -27");
     const A = collatz(27n), B = collatz(31n);
@@ -466,8 +481,8 @@ function showErr(msg) {
 }
 
 // ------------------------------------------------------------- constants
-const N_COMPANIONS = 14;
-const FLIGHT_SECONDS = 55;
+const N_COMPANIONS = 26;
+const FLIGHT_SPEED = 12;        // steps/second — identical on every flight
 
 // ------------------------------------------------------------- three setup
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -484,6 +499,7 @@ composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(
   new THREE.Vector2(innerWidth, innerHeight), 1.25, 0.55, 0.0);
 composer.addPass(bloom);
+let bloomBase = 1.25;   // user's [ / ] level; overview scales it down
 composer.addPass(new OutputPass());
 
 addEventListener("resize", () => {
@@ -728,6 +744,9 @@ let bhDisk = null;
 // distance at which streams fade out — shared by every stream material and
 // ramped up when the camera pulls out to the whole-corkscrew overview
 const FADE = { value: 950.0 };
+// core-brightness multiplier — raised in overview while bloom is lowered,
+// trading halo for crisp line-work
+const BOOST = { value: 1.0 };
 const streamVert = /* glsl */`
   uniform float uFadeD;
   attribute vec3 aColor;
@@ -740,16 +759,18 @@ const streamVert = /* glsl */`
     gl_Position = projectionMatrix * mv;
   }`;
 const lineMat = opacity => new THREE.ShaderMaterial({
-  uniforms: { uOp: { value: opacity }, uFadeD: FADE },
+  uniforms: { uOp: { value: opacity }, uFadeD: FADE, uBoost: BOOST },
   transparent: true, depthWrite: false, depthTest: false,
   blending: THREE.AdditiveBlending,
   vertexShader: streamVert,
   fragmentShader: /* glsl */`
-    uniform float uOp; varying vec3 vC; varying float vFade;
-    void main() { gl_FragColor = vec4(vC * vFade * uOp, 1.0); }`,
+    uniform float uOp; uniform float uBoost;
+    varying vec3 vC; varying float vFade;
+    void main() { gl_FragColor = vec4(vC * vFade * uOp * uBoost, 1.0); }`,
 });
 const pointMat = (size, opacity) => new THREE.ShaderMaterial({
-  uniforms: { uOp: { value: opacity }, uSize: { value: size }, uFadeD: FADE },
+  uniforms: { uOp: { value: opacity }, uSize: { value: size },
+              uFadeD: FADE, uBoost: BOOST },
   transparent: true, depthWrite: false, depthTest: false,
   blending: THREE.AdditiveBlending,
   vertexShader: /* glsl */`
@@ -765,11 +786,12 @@ const pointMat = (size, opacity) => new THREE.ShaderMaterial({
       gl_Position = projectionMatrix * mv;
     }`,
   fragmentShader: /* glsl */`
-    uniform float uOp; varying vec3 vC; varying float vFade;
+    uniform float uOp; uniform float uBoost;
+    varying vec3 vC; varying float vFade;
     void main() {
       float r = length(gl_PointCoord - 0.5) * 2.0;
       float a = pow(max(0.0, 1.0 - r), 2.0);
-      gl_FragColor = vec4(vC * a * vFade * uOp, 1.0);
+      gl_FragColor = vec4(vC * a * vFade * uOp * uBoost, 1.0);
     }`,
 });
 
@@ -867,7 +889,8 @@ function startFlight(n, attract = false) {
   const { seq, bits, cycle, anchor, escaped } = MC.collatz(n, rule);
   const startBits = Math.max(3, bits[0]);
   state.seq = seq; state.bits = bits;
-  state.cycle = cycle; state.anchor = anchor; state.escaped = escaped;
+  state.cycle = cycle; state.anchor = anchor;
+  state.escaped = escaped || !cycle;   // "gave up" reads as escaping too
   const mainTf = MC.anchorTransform(anchor);
   const mainAngs = new Float64Array(seq.length);
   state.pts = MC.buildPositions(seq, bits, mainTf, mainAngs);
@@ -899,10 +922,10 @@ function startFlight(n, attract = false) {
     state.loopPts = MC.buildPositions(mk.seq, mk.bits, mainTf);
   }
   const classic = cycle && anchor === 1n && cycle.length === 3;
-  state.cycleText = escaped ? "→ ∞"
+  state.cycleText = state.escaped ? "→ ∞"
     : classic ? "4 → 2 → 1 → 4 → …"
     : `${MC.labelText(anchor)} loop · ${cycle.length} steps`;
-  state.cycleShort = escaped ? "→ ∞" : classic ? "4·2·1"
+  state.cycleShort = state.escaped ? "→ ∞" : classic ? "4·2·1"
     : `${MC.labelText(anchor)} loop`;
   // framing for the finale close-orbit: centroid + radius of the cycle marker
   if (state.loopPts) {
@@ -966,7 +989,9 @@ function startFlight(n, attract = false) {
   const seeds = new Set();
   const sgn = n < 0n ? -1n : 1n;
   const digits = Math.max(2, (n < 0n ? -n : n).toString().length);
-  const nComp = seq.length > 30000 ? 8 : N_COMPANIONS;
+  // neighbours always fly — the merges are the show; above ~2^7000-1 the
+  // launch may stutter briefly, a price worth paying (user's call)
+  const nComp = N_COMPANIONS;
   const near = [-3, -2, -1, 1, 2, 3, 5, 8, 13, -8];
   for (let k = 0; k < nComp / 2; k++) {
     const off = BigInt(near[Math.floor(Math.random() * near.length)])
@@ -974,7 +999,7 @@ function startFlight(n, attract = false) {
     const s = n + off;
     if ((s < 0n ? -s : s) >= 3n && s !== n) seeds.add(s);
   }
-  const randDigits = Math.max(2, Math.min(digits, 60) - 1);
+  const randDigits = Math.max(2, Math.min(digits, 110) - 1);
   while (seeds.size < nComp)
     seeds.add(sgn * MC.randBigInt(2 + Math.floor(Math.random() * randDigits)));
   const mainIdx = new Map();
@@ -1100,11 +1125,12 @@ function startFlight(n, attract = false) {
   scene.add(group);
 
   state.s = 0;
-  state.baseSpeed = Math.min(300, Math.max(3, (seq.length - 1) / FLIGHT_SECONDS));
+  state.baseSpeed = FLIGHT_SPEED;   // same relaxed pace, any size of number
   state.speedMult = attract ? 0.5 : 1;
   state.paused = false;
   state.introT = 0;
   state.mode = "fly";
+  state.userFlight = !attract;     // enables "return to flight" in the menu
   state.startBits = startBits;
   state.lastHudIdx = -1;
   state.ovToggle = null;           // finale view back on automatic
@@ -1404,16 +1430,22 @@ function drawChart() {
   ctx.textAlign = "right";
   ctx.fillText((L - 1).toLocaleString(), CW - PAD.r, CH - PAD.b + 4);
 
-  // downsample per pixel column, keeping bucket maxima so peaks survive
+  // short flights: plot every node exactly (the dot rides the true line);
+  // long ones: downsample per pixel column, keeping maxima so peaks survive
   const cols = CW - PAD.l - PAD.r;
   const path = [];
-  for (let c = 0; c < cols; c++) {
-    const a = Math.floor(c * (L - 1) / cols), b = Math.max(a + 1, Math.floor((c + 1) * (L - 1) / cols));
-    let m = a;
-    for (let i = a; i <= Math.min(b, L - 1); i++) if (logs[i] > logs[m]) m = i;
-    path.push(chartXY(m, logs[m]));
+  if (L - 1 <= cols) {
+    for (let i = 0; i < L; i++) path.push(chartXY(i, logs[i]));
+  } else {
+    for (let c = 0; c < cols; c++) {
+      const a = Math.floor(c * (L - 1) / cols),
+            b = Math.max(a + 1, Math.floor((c + 1) * (L - 1) / cols));
+      let m = a;
+      for (let i = a; i <= Math.min(b, L - 1); i++) if (logs[i] > logs[m]) m = i;
+      path.push(chartXY(m, logs[m]));
+    }
+    path.push(chartXY(L - 1, logs[L - 1]));
   }
-  path.push(chartXY(L - 1, logs[L - 1]));
 
   // soft area between the line and the zero baseline, then the line itself
   const [, y0] = chartXY(0, 0);
@@ -1461,9 +1493,13 @@ function renderChartFrame() {
   ctx.drawImage(chartBase, 0, 0);
   ctx.scale(dpr, dpr);
 
-  // live position: halo + dot riding the profile
+  // live position: halo + dot riding the profile, interpolated between
+  // nodes so it glides along the drawn segments instead of hopping
   const i = Math.min(Math.floor(state.s), state.seq.length - 1);
-  const [x, y] = chartXY(state.s, signedLog(i));
+  const lg0 = signedLog(i);
+  const lg = i + 1 < state.seq.length
+    ? lg0 + (signedLog(i + 1) - lg0) * Math.min(1, state.s - i) : lg0;
+  const [x, y] = chartXY(state.s, lg);
   ctx.beginPath(); ctx.arc(x, y, 6.5, 0, 7);
   ctx.fillStyle = "rgba(255,225,160,.25)"; ctx.fill();
   ctx.beginPath(); ctx.arc(x, y, 3, 0, 7);
@@ -1637,6 +1673,12 @@ function animate() {
     FADE.value = Math.exp(
       Math.log(FADE.value) + (Math.log(fTarget) - Math.log(FADE.value)) * kF);
 
+    // overview trades halo for crispness: less bloom, brighter line cores
+    const ov = overviewActive();
+    bloom.strength += (bloomBase * (ov ? 0.42 : 1) - bloom.strength) * kF;
+    bloom.radius += ((ov ? 0.30 : 0.55) - bloom.radius) * kF;
+    BOOST.value += ((ov ? 1.55 : 1) - BOOST.value) * kF;
+
     placeCamera(elapsed, dt);
     updateHud();
 
@@ -1663,6 +1705,7 @@ function animate() {
   starMat.uniforms.uCam.value.copy(camera.position);
   starMat.uniforms.uTime.value = elapsed;
 
+  updateMusic(dt);
   updateLabels();
   composer.render();
 
@@ -1698,8 +1741,17 @@ function openMenu() {
   inputRow.classList.add("hidden");
   fameList.classList.add("hidden");
   inErr.textContent = "";
+  document.getElementById("opt-resume").classList
+    .toggle("hidden", !state.userFlight);
   if (state.mode !== "idle") { state.attract = true; hudEl.classList.add("hidden"); }
 }
+function resumeFlight() {
+  if (!state.userFlight) return;
+  menuEl.classList.add("hidden");
+  state.attract = false;
+  hudEl.classList.toggle("hidden", !state.hud);
+}
+document.getElementById("opt-resume").onclick = resumeFlight;
 // keep the URL a shareable deep link to the current voyage
 function updateUrl(expr) {
   try {
@@ -1819,7 +1871,9 @@ numIn.addEventListener("keydown", e => {
 addEventListener("keydown", e => {
   const menuOpen = !menuEl.classList.contains("hidden");
   if (menuOpen) {
-    if (e.key === "1") showInput();
+    if (e.key === "0" || e.key === "Escape") resumeFlight();
+    else if (e.key === "m" || e.key === "M") muteToggle();
+    else if (e.key === "1") showInput();
     else if (e.key === "2") document.getElementById("opt-rand").onclick();
     else if (e.key === "3") document.getElementById("opt-huge").onclick();
     else if (e.key === "4") document.getElementById("opt-neg").onclick();
@@ -1851,10 +1905,11 @@ addEventListener("keydown", e => {
       if (state.mode === "loop") state.ovToggle = !overviewActive();
       break;
     case "KeyP": pendingShot = true; break;
+    case "KeyM": muteToggle(); break;
     case "BracketLeft":
-      bloom.strength = Math.max(0, bloom.strength - 0.1); break;
+      bloomBase = Math.max(0, bloomBase - 0.1); break;
     case "BracketRight":
-      bloom.strength = Math.min(3, bloom.strength + 0.1); break;
+      bloomBase = Math.min(3, bloomBase + 0.1); break;
     case "KeyR": case "Escape": openMenu(); break;
   }
 });
@@ -1883,7 +1938,7 @@ const gizmoRings = [];
  [0x5588ff, "z", new THREE.Vector3(0, 0, 1)]].forEach(([col, ax, axis]) => {
   const ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.045, 8, 56),
     new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.7 }));
-  const hit = new THREE.Mesh(new THREE.TorusGeometry(1, 0.17, 6, 32),
+  const hit = new THREE.Mesh(new THREE.TorusGeometry(1, 0.3, 6, 32),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0,
                                   depthWrite: false }));
   if (ax === "x") { ring.rotation.y = Math.PI / 2; hit.rotation.y = Math.PI / 2; }
@@ -1919,9 +1974,11 @@ const _axq = new THREE.Quaternion();
 function gizmoRotate(axis, dx, dy) {
   let ang;
   const c = state.overview ? state.overview.center : camera.position;
+  // probe scaled to the view so the axis's screen direction is measurable
+  const s = state.overview ? state.overview.dist * orbit.zoom * 0.2 : 500;
   const p0 = projectToScreen(c.x, c.y, c.z);
-  const p1 = projectToScreen(c.x + axis.x * 100, c.y + axis.y * 100,
-                             c.z + axis.z * 100);
+  const p1 = projectToScreen(c.x + axis.x * s, c.y + axis.y * s,
+                             c.z + axis.z * s);
   if (p0 && p1) {
     let ax = p1[0] - p0[0], ay = p1[1] - p0[1];
     const len = Math.hypot(ax, ay);
@@ -1935,15 +1992,18 @@ function gizmoRotate(axis, dx, dy) {
 let dragPrev = null, dragDist = 1e9;
 renderer.domElement.addEventListener("pointerdown", e => {
   if (!overviewActive()) return;
-  const g = state.hud && !state.attract
-    ? gizmoPick(e.clientX, e.clientY) : null;
+  const gizmoLive = state.hud && !state.attract;
+  const g = gizmoLive ? gizmoPick(e.clientX, e.clientY) : null;
   if (g) {
     gizmoDrag = g.userData.axis;
+    g.userData.vis.material.opacity = 1;      // light up the grabbed ring
     dragPrev = [e.clientX, e.clientY];
     orbit.lastT = elapsed;
     renderer.domElement.setPointerCapture(e.pointerId);
     return;
   }
+  // the gizmo square is exclusive: a near-miss must not start a free-drag
+  if (gizmoLive && gizmoNDC(e.clientX, e.clientY)) return;
   orbit.dragging = true;
   dragPrev = [e.clientX, e.clientY];
   dragDist = 0;
@@ -1979,7 +2039,12 @@ addEventListener("pointermove", e => {
   orbit.lastT = elapsed;
 });
 addEventListener("pointerup", e => {
-  if (gizmoDrag) { gizmoDrag = null; return; }
+  if (gizmoDrag) {
+    gizmoDrag = null;
+    gizmoRings.forEach(h => h.userData.vis.material.opacity = 0.7);
+    gizmoHover = null;
+    return;
+  }
   const wasDrag = orbit.dragging;
   orbit.dragging = false;
   if (wasDrag && dragDist < 6 && overviewActive())
@@ -2040,6 +2105,74 @@ function pickStream(x, y) {
 }
 document.getElementById("pick-yes").onclick = flyPick;
 document.getElementById("pick-no").onclick = closePick;
+
+// ------------------------------------------------------------- music
+// ambient sets per mode, crossfaded on every transition; multi-track sets
+// start on a random pick and rotate when a track ends. M toggles mute.
+const MUSIC_SETS = {
+  menu: ["sound/In-Game-Menu.flac"],
+  flight: ["sound/Flight1.flac", "sound/Flight2.flac"],
+  vast: ["sound/Overview-Vast1.flac", "sound/Overview-Vast2.flac",
+         "sound/Overview-Vast3.flac"],
+};
+const MUSIC_VOL = 0.55, MUSIC_FADE = 2.0;   // seconds for a full fade
+const musicIdx = {};
+let musicCur = null;          // { el, mode }
+const musicFading = [];
+let musicMuted = false;
+
+function musicNextSrc(mode) {
+  const set = MUSIC_SETS[mode];
+  if (musicIdx[mode] === undefined)
+    musicIdx[mode] = Math.floor(Math.random() * set.length);
+  const src = set[musicIdx[mode]];
+  musicIdx[mode] = (musicIdx[mode] + 1) % set.length;
+  return src;
+}
+function musicStart(mode) {
+  const el = new Audio(musicNextSrc(mode));
+  el.volume = 0;
+  if (MUSIC_SETS[mode].length === 1) el.loop = true;
+  else el.addEventListener("ended", () => {
+    if (musicCur && musicCur.el === el) musicStart(mode);  // rotate in-mode
+  });
+  el.play().catch(() => {});  // blocked until the first user gesture — fine
+  musicCur = { el, mode };
+}
+function updateMusic(dt) {
+  const want = !menuEl.classList.contains("hidden") ? "menu"
+             : state.mode === "loop" ? "vast" : "flight";
+  if (!musicCur || musicCur.mode !== want) {
+    if (musicCur) musicFading.push(musicCur.el);
+    musicStart(want);
+  }
+  const step = dt * MUSIC_VOL / MUSIC_FADE;
+  const target = musicMuted ? 0 : MUSIC_VOL;
+  const el = musicCur.el;
+  el.volume = el.volume < target ? Math.min(target, el.volume + step)
+                                 : Math.max(target, el.volume - step);
+  for (let i = musicFading.length - 1; i >= 0; i--) {
+    const f = musicFading[i];
+    f.volume = Math.max(0, f.volume - step);
+    if (f.volume <= 0) { f.pause(); musicFading.splice(i, 1); }
+  }
+}
+const muteBtn = document.getElementById("mutebtn");
+function muteToggle() {
+  musicMuted = !musicMuted;
+  muteBtn.textContent = musicMuted ? "♪ music off" : "♪ music on";
+  muteBtn.classList.toggle("sel", !musicMuted);
+  toast(musicMuted ? "music muted" : "music on");
+}
+muteBtn.onclick = muteToggle;
+
+// autoplay unlock: the first gesture anywhere starts whatever should play
+function musicUnlock() {
+  if (musicCur && musicCur.el.paused && !musicCur.el.ended)
+    musicCur.el.play().catch(() => {});
+}
+addEventListener("pointerdown", musicUnlock, true);
+addEventListener("keydown", musicUnlock, true);
 
 // deep link (?n=27&rule=3n-1) launches that voyage directly; otherwise
 // attract mode: a quiet random voyage drifts behind the menu
